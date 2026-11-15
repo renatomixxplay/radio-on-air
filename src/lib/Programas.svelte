@@ -2,7 +2,6 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, MIME, type Arrasto, type Pasta, type Previa } from "./api";
   import Icone from "./Icone.svelte";
-  import PreEscuta from "./PreEscuta.svelte";
 
   let {
     pasta,
@@ -87,12 +86,15 @@
           <button
             class="acao-linha ouvir"
             class:ouvindo={previa?.caminho === a.caminho}
-            aria-label="Pré-escuta"
-            title="Pré-escuta"
+            aria-label={previa?.caminho === a.caminho ? "Parar pré-escuta" : "Pré-escuta"}
+            title={previa?.caminho === a.caminho ? "Parar pré-escuta" : "Pré-escuta"}
             onclick={() => (previa?.caminho === a.caminho ? api.previaParar() : api.previaTocar(a.caminho))}
           >
-            <Icone nome="fone" tamanho={18} />
+            <Icone nome={previa?.caminho === a.caminho ? "stop" : "fone"} tamanho={18} />
           </button>
+          {#if previa?.caminho === a.caminho}
+            <span class="mini" style:width="{previa.duracao ? Math.min(100, (previaDecorrido / previa.duracao) * 100) : 0}%"></span>
+          {/if}
           <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(a.caminho, "programa")}>
             <Icone nome="plus" tamanho={18} />
           </button>
@@ -102,10 +104,16 @@
       {/each}
     </div>
   {/if}
-  {#if pasta && previa}<PreEscuta {previa} decorrido={previaDecorrido} />{/if}
 </section>
 
 <style>
+  .mini {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    background: var(--azul);
+  }
   .seletor {
     position: relative;
     margin: 0 10px 8px;
@@ -155,6 +163,7 @@
     background: var(--painel-2);
   }
   .item {
+    position: relative;
     cursor: grab;
   }
   .acao-linha {
