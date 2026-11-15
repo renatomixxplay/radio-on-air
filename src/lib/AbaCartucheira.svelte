@@ -18,14 +18,13 @@
 </script>
 
 <div class="aba">
-  <section class="painel caixa">
-    <div class="cabeca">
-      <div class="titulo">Cartucheira</div>
-      <div class="suave">Escolha o áudio de cada um dos 8 botões.</div>
-    </div>
-    <div class="lista grade">
+  <div class="topo">
+    <h3 class="grupo">Cartucheira</h3>
+    <div class="suave">Escolha o áudio de cada um dos 8 botões.</div>
+  </div>
+  <div class="grade">
       {#each slots as slot, i}
-        <div class="linha slot">
+        <div class="painel linha slot">
           <span class="numero mono">{i + 1}</span>
           <div class="textos">
             {#if slot}
@@ -47,29 +46,23 @@
           {/if}
         </div>
       {/each}
-    </div>
-  </section>
+  </div>
 </div>
 
 <style>
   .aba {
     flex: 1;
     min-height: 0;
-    display: flex;
-    padding: 10px;
+    overflow-y: auto;
+    padding: 10px 10px 20px;
   }
-  .caixa {
-    flex: 1;
-    min-width: 0;
+  .topo {
+    margin: 4px 4px 10px;
   }
-  .cabeca {
-    padding: 14px;
-    border-bottom: 0.5px solid var(--borda);
-  }
-  .titulo {
-    font-size: 16px;
+  .grupo {
+    margin: 0 0 2px;
+    font-size: 15px;
     font-weight: 500;
-    margin-bottom: 2px;
   }
   .suave {
     font-size: 13px;
@@ -77,14 +70,12 @@
   .grade {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-content: start;
     gap: 10px;
-    padding: 10px;
   }
   .slot {
-    border: 0.5px solid var(--borda-forte);
-    border-radius: 8px;
-    padding: 12px;
+    flex-direction: row;
+    padding: 12px 14px;
+    border-bottom: 0.5px solid var(--borda);
   }
   .numero {
     width: 34px;

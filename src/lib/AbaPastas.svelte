@@ -14,30 +14,28 @@
 </script>
 
 <div class="aba">
-  <section class="painel caixa">
-    <div class="cabeca">
-      <div>
-        <div class="titulo">Pastas</div>
-        <div class="suave">Aparecem no painel Pastas da tela No ar, em ordem alfabética.</div>
-      </div>
-      <button class="botao" onclick={adicionar}><Icone nome="plus" tamanho={16} /> Adicionar pasta</button>
+  <div class="topo">
+    <div>
+      <h3 class="grupo">Pastas</h3>
+      <div class="suave">Aparecem no painel Pastas da tela No ar, em ordem alfabética.</div>
     </div>
-    <div class="lista">
-      {#each pastas as p (p.caminho)}
-        <div class="linha">
-          <span class="cor-pasta"><Icone nome="folder" tamanho={20} /></span>
-          <div class="textos">
-            <span class="reticencias">{p.nome}</span>
-            <span class="reticencias suave caminho">{p.caminho}</span>
-          </div>
-          <button class="quadrado lixo" onclick={() => api.pastaRemover(p.caminho)} title="Tirar da lista" aria-label="Tirar da lista">
-            <Icone nome="lixeira" tamanho={18} />
-          </button>
+    <button class="botao" onclick={adicionar}><Icone nome="plus" tamanho={16} /> Adicionar pasta</button>
+  </div>
+  <section class="painel cartao">
+    {#each pastas as p (p.caminho)}
+      <div class="linha item">
+        <span class="cor-pasta"><Icone nome="folder" tamanho={20} /></span>
+        <div class="textos">
+          <span class="reticencias">{p.nome}</span>
+          <span class="reticencias suave caminho">{p.caminho}</span>
         </div>
-      {:else}
-        <div class="vazio">Nenhuma pasta ainda. Use "Adicionar pasta".</div>
-      {/each}
-    </div>
+        <button class="quadrado lixo" onclick={() => api.pastaRemover(p.caminho)} title="Tirar da lista" aria-label="Tirar da lista">
+          <Icone nome="lixeira" tamanho={18} />
+        </button>
+      </div>
+    {:else}
+      <div class="vazio">Nenhuma pasta ainda. Use "Adicionar pasta".</div>
+    {/each}
   </section>
 </div>
 
@@ -45,28 +43,33 @@
   .aba {
     flex: 1;
     min-height: 0;
-    display: flex;
-    padding: 10px;
+    overflow-y: auto;
+    padding: 10px 10px 20px;
   }
-  .caixa {
-    flex: 1;
-    min-width: 0;
-  }
-  .cabeca {
+  .topo {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
     gap: 12px;
-    padding: 14px;
-    border-bottom: 0.5px solid var(--borda);
+    margin: 4px 4px 10px;
   }
-  .titulo {
-    font-size: 16px;
+  .grupo {
+    margin: 0 0 2px;
+    font-size: 15px;
     font-weight: 500;
-    margin-bottom: 2px;
   }
   .suave {
     font-size: 13px;
+  }
+  .cartao {
+    overflow: hidden;
+  }
+  .item {
+    padding: 12px 14px;
+    gap: 12px;
+  }
+  .cartao > .item:last-child {
+    border-bottom: none;
   }
   .botao {
     height: 38px;

@@ -86,7 +86,12 @@
 </script>
 
 <div class="tela">
-  <section class="painel">
+  <div class="coluna">
+  <div class="cabeca">
+    <h3 class="grupo">Agendamentos</h3>
+    <button class="botao" onclick={novo}><Icone nome="plus" tamanho={16} /> Novo agendamento</button>
+  </div>
+  <section class="painel cartao">
     <div class="filtro">
       <button class="chip" class:on={filtro < 0} onclick={() => (filtro = -1)}>Todos</button>
       {#each DIAS_NOME as d, i}
@@ -108,19 +113,20 @@
         <div class="vazio">Nenhum agendamento {filtro >= 0 ? "neste dia" : "ainda"}.</div>
       {/each}
     </div>
-    <div class="rodape">
-      <button class="botao" onclick={novo}><Icone nome="plus" tamanho={16} /> Novo agendamento</button>
-    </div>
   </section>
+  </div>
 
-  <section class="painel editor">
+  <div class="coluna">
+  <div class="cabeca">
+    <h3 class="grupo">{edicao ? (edicao.id === 0 ? "Novo agendamento" : "Editar agendamento") : "Detalhes"}</h3>
     {#if edicao}
-      <div class="topo">
-        <span class="titulo">{edicao.id === 0 ? "Novo agendamento" : "Editar agendamento"}</span>
-        <button class="quadrado lixo" onclick={remover} title="Excluir" aria-label="Excluir">
-          <Icone nome="lixeira" tamanho={18} />
-        </button>
-      </div>
+      <button class="quadrado lixo" onclick={remover} title="Excluir" aria-label="Excluir">
+        <Icone nome="lixeira" tamanho={18} />
+      </button>
+    {/if}
+  </div>
+  <section class="painel cartao editor">
+    {#if edicao}
 
       <div class="campo">Horário</div>
       <input class="horario mono" type="time" bind:value={edicao.horario} />
@@ -190,6 +196,7 @@
       </div>
     {/if}
   </section>
+  </div>
 </div>
 
 <style>
@@ -198,8 +205,31 @@
     min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-    gap: 10px;
-    padding: 10px;
+    gap: 14px;
+    padding: 10px 10px 14px;
+  }
+  .coluna {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Título fora do cartão, como em Configurações. */
+  .cabeca {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 38px;
+    margin: 0 4px 8px;
+  }
+  .grupo {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .cartao {
+    flex: 1;
+    overflow: hidden;
   }
   .filtro {
     display: flex;
@@ -275,10 +305,6 @@
     border-color: #4a6aa5;
     color: #cfe0ff;
   }
-  .rodape {
-    padding: 10px;
-    border-top: 0.5px solid var(--borda);
-  }
   .botao {
     height: 38px;
     padding: 0 14px;
@@ -290,16 +316,6 @@
   .editor {
     padding: 14px;
     overflow-y: auto;
-  }
-  .topo {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-  .titulo {
-    font-size: 15px;
-    font-weight: 500;
   }
   .quadrado {
     width: 34px;
