@@ -101,7 +101,7 @@
       {#each visiveis as a (a.id)}
         {@const t = tipoInfo(a.tipo)}
         <button class="painel linha ag" class:sel={edicao?.id === a.id} onclick={() => editar(a)}>
-          <span class="hora mono">{a.horario}</span>
+          <span class="hora">{a.horario}</span>
           <span class="tag etiqueta {a.tipo}" title={t.nome}><Icone nome={t.icone} tamanho={18} /></span>
           <span class="reticencias pastas">{a.pastas.map((p) => nomePasta(p.caminho)).join(" + ")}</span>
           <span class="dias">
@@ -127,7 +127,7 @@
     {#if edicao}
 
       <div class="campo">Horário</div>
-      <input class="horario mono" type="time" bind:value={edicao.horario} />
+      <input class="horario" type="time" bind:value={edicao.horario} />
 
       <div class="campo">Dias</div>
       <div class="dias-grandes">
@@ -270,9 +270,12 @@
     background: #222836;
     border-color: #4a6aa5;
   }
+  /* Fonte do projeto; números com a mesma largura para os horários alinharem. */
   .hora {
     font-size: 15px;
+    font-weight: 500;
     color: #fff;
+    font-variant-numeric: tabular-nums;
   }
   .etiqueta {
     width: 34px;
@@ -350,6 +353,7 @@
     margin: 0 0 6px;
   }
   .horario {
+    font-variant-numeric: tabular-nums;
     width: 130px;
     height: 40px;
     font-size: 16px;
