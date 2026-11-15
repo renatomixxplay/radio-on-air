@@ -23,9 +23,9 @@
       <div class="titulo">Cartucheira</div>
       <div class="suave">Escolha o áudio de cada um dos 8 botões.</div>
     </div>
-    <div class="lista">
+    <div class="lista grade">
       {#each slots as slot, i}
-        <div class="linha">
+        <div class="linha slot">
           <span class="numero mono">{i + 1}</span>
           <div class="textos">
             {#if slot}
@@ -56,12 +56,11 @@
     flex: 1;
     min-height: 0;
     display: flex;
-    justify-content: center;
     padding: 10px;
   }
   .caixa {
-    width: 100%;
-    max-width: 820px;
+    flex: 1;
+    min-width: 0;
   }
   .cabeca {
     padding: 14px;
@@ -74,6 +73,18 @@
   }
   .suave {
     font-size: 13px;
+  }
+  .grade {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 10px;
+    padding: 10px;
+  }
+  .slot {
+    border: 0.5px solid var(--borda-forte);
+    border-radius: 8px;
+    padding: 12px;
   }
   .numero {
     width: 34px;

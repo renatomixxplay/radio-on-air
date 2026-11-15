@@ -120,15 +120,13 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    display: flex;
-    justify-content: center;
     padding: 10px;
   }
+  /* Ocupa a largura toda: blocos lado a lado quando cabem. */
   .coluna {
-    width: 100%;
-    max-width: 820px;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    align-items: start;
     gap: 10px;
   }
   .bloco {

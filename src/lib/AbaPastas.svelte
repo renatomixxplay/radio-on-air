@@ -46,12 +46,11 @@
     flex: 1;
     min-height: 0;
     display: flex;
-    justify-content: center;
     padding: 10px;
   }
   .caixa {
-    width: 100%;
-    max-width: 820px;
+    flex: 1;
+    min-width: 0;
   }
   .cabeca {
     display: flex;
