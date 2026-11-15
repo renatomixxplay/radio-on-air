@@ -129,7 +129,7 @@
   }
   .total {
     margin-left: auto;
-    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
     font-size: 13px;
   }
   .trocar {

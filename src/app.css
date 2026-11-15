@@ -33,7 +33,6 @@
   --laranja-bg: #4a3510;
   --laranja: #ffd79a;
 
-  --mono: ui-monospace, "SF Mono", "DejaVu Sans Mono", Menlo, monospace;
   color-scheme: dark;
 }
 
@@ -151,8 +150,10 @@ input:focus {
   color: var(--tag-programa);
 }
 
+/* Números (relógio, tempos, durações): fonte do projeto, com algarismos de mesma
+   largura para não "pular" enquanto contam. */
 .mono {
-  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
 }
 .suave {
   color: var(--texto-3);
