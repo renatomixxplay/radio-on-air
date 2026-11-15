@@ -257,21 +257,23 @@
   }
   .dias {
     display: inline-flex;
-    gap: 2px;
+    gap: 4px;
   }
   .d {
-    width: 18px;
-    height: 22px;
+    width: 26px;
+    height: 26px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-size: 12px;
-    border-radius: 4px;
+    border-radius: 6px;
+    border: 0.5px solid var(--borda-forte);
     color: var(--apagado);
   }
   .d.on {
     background: #2b3a55;
-    color: var(--azul-claro);
+    border-color: #4a6aa5;
+    color: #cfe0ff;
   }
   .rodape {
     padding: 10px;

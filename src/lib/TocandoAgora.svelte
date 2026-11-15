@@ -44,17 +44,17 @@
       {#if !aguardando && !porCima && proximo}
         <span class="aviso-ag contorno apagado" title="Próximo agendamento">
           <Icone nome={proximo.tipo === "hora_certa" ? "relogio" : proximo.tipo === "ducking" ? "ducking" : "megafone"} tamanho={14} />
-          <span class="mono">{proximo.horario}</span>{proximo.nome}
+          <span class="mono">{proximo.horario}</span><span class="texto">{proximo.nome}</span>
         </span>
       {/if}
       {#if aguardando}
         <span class="aviso-ag contorno" title="Entra quando esta música acabar">
-          <Icone nome="megafone" tamanho={14} />depois desta: {aguardando}
+          <Icone nome="megafone" tamanho={14} /><span class="texto">depois desta: {aguardando}</span>
         </span>
       {/if}
       {#if porCima}
         <span class="aviso-ag" title="Comercial tocando por cima da música">
-          <Icone nome="ducking" tamanho={14} />{porCima}
+          <Icone nome="ducking" tamanho={14} /><span class="texto">{porCima}</span>
         </span>
       {/if}
     </span>
@@ -129,19 +129,25 @@
   .avisos {
     margin-left: auto;
     display: flex;
-    gap: 6px;
-    min-width: 0;
-    max-width: 70%;
+    align-items: center;
   }
+  /* Tamanho fixo: nome comprido vira "…" em vez de esticar o aviso. */
   .aviso-ag {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    width: 300px;
+    height: 28px;
     font-size: 13px;
-    padding: 3px 10px;
+    line-height: 1;
+    padding: 0 10px;
     border-radius: 6px;
     background: var(--tag-comercial-bg);
     color: var(--tag-comercial);
+    border: 0.5px solid transparent;
+  }
+  .aviso-ag .texto {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
@@ -149,7 +155,7 @@
   }
   .aviso-ag.contorno {
     background: transparent;
-    border: 0.5px solid var(--tag-comercial);
+    border-color: var(--tag-comercial);
   }
   .aviso-ag.apagado {
     opacity: 0.75;
