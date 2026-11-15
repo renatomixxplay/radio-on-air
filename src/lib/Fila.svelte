@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, MIME, tempo, type Arrasto, type Item } from "./api";
+  import { onMount } from "svelte";
   import Icone from "./Icone.svelte";
 
   let { fila }: { fila: Item[] } = $props();
@@ -13,6 +14,25 @@
   const total = $derived(fila.reduce((s, i) => s + (i.duracao ?? 0), 0));
 
   let alvo = $state<number | null>(null);
+  /** Algo está sendo arrastado: a fila se destaca para mostrar onde soltar. */
+  let destaque = $state(false);
+
+  onMount(() => {
+    const comecou = (e: DragEvent) => (destaque = true);
+    const acabou = () => {
+      destaque = false;
+      alvo = null;
+      arrastandoId = null;
+    };
+    document.addEventListener("dragstart", comecou);
+    document.addEventListener("dragend", acabou);
+    document.addEventListener("drop", acabou);
+    return () => {
+      document.removeEventListener("dragstart", comecou);
+      document.removeEventListener("dragend", acabou);
+      document.removeEventListener("drop", acabou);
+    };
+  });
   let arrastandoId = $state<number | null>(null);
 
   function iniciar(ev: DragEvent, item: Item) {
@@ -23,20 +43,32 @@
     if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
   }
 
+  /** Só aceita o que veio do programa (músicas, programas ou a própria fila). */
+  function aceitar(ev: DragEvent): boolean {
+    const ok = !!ev.dataTransfer?.types.includes(MIME);
+    if (ok) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = arrastandoId != null ? "move" : "copy";
+    }
+    return ok;
+  }
+
   function sobreLinha(ev: DragEvent, i: number) {
-    ev.preventDefault();
-    ev.stopPropagation();
+    if (!aceitar(ev)) return;
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     alvo = ev.clientY < r.top + r.height / 2 ? i : i + 1;
   }
 
   function sobreLista(ev: DragEvent) {
-    ev.preventDefault();
+    if (!aceitar(ev)) return;
     alvo = fila.length;
   }
 
   async function soltar(ev: DragEvent) {
     ev.preventDefault();
+    ev.stopPropagation();
+    destaque = false;
     const pos = alvo ?? fila.length;
     alvo = null;
     arrastandoId = null;
@@ -52,9 +84,10 @@
   }
 </script>
 
-<section class="painel">
+<section class="painel" class:destaque>
   <div class="rotulo">
     <Icone nome="list" tamanho={14} />Fila
+    {#if destaque}<span class="solte">solte aqui</span>{/if}
     <span class="info mono">{fila.length}/10 · {tempo(total)}</span>
   </div>
   <div
@@ -105,6 +138,14 @@
 </section>
 
 <style>
+  .painel.destaque {
+    border: 1.5px dashed var(--verde);
+    background: #19221d;
+  }
+  .solte {
+    color: var(--verde);
+    font-size: 13px;
+  }
   .info {
     margin-left: auto;
     font-size: 13px;
