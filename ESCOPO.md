@@ -103,6 +103,10 @@ Funciona por **horário + dias da semana**. Não existe "sequência/receita": o 
 - ✅ **Programas dos locutores** entram de dois jeitos: o operador **adiciona na fila pelo ➕**, ou é **agendado como comercial** (agendamento apontando para a pasta do programa).
 
 - ✅ Cada agendamento repete nos **dias da semana** marcados.
+- ✅ **Agendamento não entra na fila** (não se exclui, se executa): comercial e hora certa esperam a música acabar numa sequência própria. No Tocando agora aparece "depois desta: …".
+- ✅ **Ducking que não cabe:** se o bloco falado for maior que o que falta da música, a música **repete por baixo**; quando a fala termina, **fade de 3 s** e próxima.
+- ✅ Topo da tela mostra o **próximo agendamento** (horário e nome; listas de músicas não aparecem).
+- ✅ Agendamentos em **amarelo**.
 - ✅ O agendamento de comercial aponta para uma **pasta** (não um arquivo mp3).
 - ✅ Um mesmo agendamento pode ter **várias pastas** anexadas.
 - ✅ As pastas tocam na **ordem em que foram anexadas**.

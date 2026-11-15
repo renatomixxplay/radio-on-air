@@ -119,6 +119,43 @@ pub fn lista_vigente(v: &[Agendamento]) -> Option<String> {
     None
 }
 
+/// Próximo agendamento que vai executar (listas de músicas não entram).
+#[derive(Debug, Clone, Serialize)]
+pub struct ProximoDto {
+    pub horario: String,
+    pub tipo: TipoAgenda,
+    pub nome: String,
+}
+
+pub fn proximo(v: &[Agendamento]) -> Option<ProximoDto> {
+    let agora = Local::now();
+    let hoje = agora.date_naive();
+    let minuto_agora = agora.hour() * 60 + agora.minute();
+    for adiante in 0..8 {
+        let data = hoje + chrono::Days::new(adiante);
+        let dia = dia_semana(data);
+        let achado = v
+            .iter()
+            .filter(|a| a.tipo != TipoAgenda::Lista && a.vale_no_dia(dia))
+            .filter_map(|a| a.hora_minuto().map(|(h, m)| (h * 60 + m, a)))
+            .filter(|(m, _)| adiante > 0 || *m > minuto_agora)
+            .min_by_key(|(m, _)| *m);
+        if let Some((_, a)) = achado {
+            let nome = match a.tipo {
+                TipoAgenda::HoraCerta => "Hora certa".to_string(),
+                _ => a
+                    .pastas
+                    .iter()
+                    .map(|p| Path::new(&p.caminho).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join(" + "),
+            };
+            return Some(ProximoDto { horario: a.horario.clone(), tipo: a.tipo, nome });
+        }
+    }
+    None
+}
+
 // ---------- validade no nome: "Ofertas [12-10-2025].mp3" ----------
 
 /// Data de validade escrita no nome do arquivo, se houver.

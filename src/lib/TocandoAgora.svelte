@@ -10,6 +10,8 @@
     repetir,
     ducking,
     porCima,
+    aguardando,
+    repetirAuto,
   }: {
     item: Item | null;
     decorrido: number;
@@ -18,6 +20,8 @@
     repetir: boolean;
     ducking: boolean;
     porCima: string | null;
+    aguardando: string | null;
+    repetirAuto: boolean;
   } = $props();
 
   const duracao = $derived(item?.duracao ?? null);
@@ -32,11 +36,18 @@
     <span class="ponto" class:on={noAr && item && !pausado}><Icone nome="play" tamanho={14} /></span>
     Tocando agora
     {#if pausado}<span class="pausado">pausado</span>{/if}
-    {#if porCima}
-      <span class="por-cima" title="Comercial tocando por cima da música">
-        <Icone nome="megafone" tamanho={14} />{porCima}
-      </span>
-    {/if}
+    <span class="avisos">
+      {#if aguardando}
+        <span class="aviso-ag contorno" title="Entra quando esta música acabar">
+          <Icone nome="megafone" tamanho={14} />depois desta: {aguardando}
+        </span>
+      {/if}
+      {#if porCima}
+        <span class="aviso-ag" title="Comercial tocando por cima da música">
+          <Icone nome="ducking" tamanho={14} />{porCima}
+        </span>
+      {/if}
+    </span>
   </div>
 
   <div class="corpo">
@@ -66,7 +77,12 @@
       {:else}
         <button class="principal" onclick={api.tocar} title="Tocar" aria-label="Tocar"><Icone nome="play" tamanho={20} /></button>
       {/if}
-      <button class:ligado={repetir} onclick={api.alternarRepetir} title="Repetir a música atual" aria-label="Repetir">
+      <button
+        class:ligado={repetir || repetirAuto}
+        onclick={api.alternarRepetir}
+        title={repetirAuto ? "Repetindo sozinho enquanto o comercial fala" : "Repetir a música atual"}
+        aria-label="Repetir"
+      >
         <Icone nome="repetir" tamanho={20} />
       </button>
       <button onclick={api.proxima} title="Passar para a próxima" aria-label="Passar" disabled={!noAr}>
@@ -95,8 +111,14 @@
     background: var(--laranja-bg);
     color: var(--laranja);
   }
-  .por-cima {
+  .avisos {
     margin-left: auto;
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+    max-width: 70%;
+  }
+  .aviso-ag {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -105,10 +127,14 @@
     border-radius: 6px;
     background: var(--tag-comercial-bg);
     color: var(--tag-comercial);
-    max-width: 50%;
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  .aviso-ag.contorno {
+    background: transparent;
+    border: 0.5px solid var(--tag-comercial);
   }
   .corpo {
     flex: 1;

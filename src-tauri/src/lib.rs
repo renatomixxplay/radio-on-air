@@ -103,6 +103,11 @@ pub struct Estado {
     lista_ativa: Option<String>,
     /// Comercial com ducking tocando por cima agora.
     por_cima: Option<String>,
+    /// Comerciais e hora certa esperando a música acabar. Não aparecem na fila
+    /// (agendamento não se exclui, se executa) e tocam antes dela.
+    pendentes: Vec<Item>,
+    /// Repetição ligada sozinha porque o ducking não cabia no fim da música.
+    repetir_auto: bool,
     prox_id: u64,
     motor: Option<Motor>,
     /// O motor está sendo ligado em segundo plano.
@@ -160,6 +165,10 @@ struct Retrato {
     previa: Option<PreviaDto>,
     lista_ativa: Option<String>,
     por_cima: Option<String>,
+    /// Comercial/hora certa que entra quando a música acabar.
+    aguardando: Option<String>,
+    repetir_auto: bool,
+    proximo_agendamento: Option<agenda::ProximoDto>,
 }
 
 impl Estado {
@@ -194,6 +203,12 @@ impl Estado {
                 Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
             }),
             por_cima: self.por_cima.clone(),
+            aguardando: self.pendentes.first().map(|p| {
+                let pasta = if p.artista.is_empty() { p.titulo.clone() } else { p.artista.clone() };
+                if self.pendentes.len() > 1 { format!("{pasta} ({})", self.pendentes.len()) } else { pasta }
+            }),
+            repetir_auto: self.repetir_auto,
+            proximo_agendamento: agenda::proximo(&self.agenda),
             previa: self.previa.as_ref().map(|p| PreviaDto {
                 caminho: p.caminho.clone(),
                 titulo: p.titulo.clone(),
@@ -215,16 +230,31 @@ impl Estado {
     }
 
     /// Entrega o primeiro da fila ao motor, se ainda não foi.
+    /// Já tem algo entregue ao motor esperando para tocar.
+    fn tem_entregue(&self) -> bool {
+        self.pendentes.iter().chain(self.fila.iter()).any(|i| i.travado)
+    }
+
+    /// Entrega ao motor o próximo: primeiro os agendados pendentes, depois a fila.
     fn enviar_proximo(&mut self) {
+        if self.tem_entregue() {
+            return;
+        }
         let Some(motor) = &self.motor else { return };
-        if let Some(prox) = self.fila.first_mut() {
-            if !prox.travado {
-                match motor.enfileirar(&prox.caminho) {
-                    Ok(()) => prox.travado = true,
-                    Err(e) => self.erro_motor = Some(e),
-                }
+        let prox = match self.pendentes.first_mut() {
+            Some(p) => Some(p),
+            None => self.fila.first_mut(),
+        };
+        if let Some(prox) = prox {
+            match motor.enfileirar(&prox.caminho) {
+                Ok(()) => prox.travado = true,
+                Err(e) => self.erro_motor = Some(e),
             }
         }
+    }
+
+    fn destravar_tudo(&mut self) {
+        self.pendentes.iter_mut().chain(self.fila.iter_mut()).for_each(|i| i.travado = false);
     }
 }
 
@@ -239,9 +269,10 @@ fn analisar_em_segundo_plano(app: &AppHandle, estado: &Compartilhado, id: u64, c
     std::thread::spawn(move || {
         let duracao = analise::duracao(Path::new(&caminho));
         let mut e = travar(&estado);
-        let Estado { fila, tocando, .. } = &mut *e;
+        let Estado { fila, tocando, pendentes, .. } = &mut *e;
         let alvo = fila
             .iter_mut()
+            .chain(pendentes.iter_mut())
             .find(|i| i.id == id)
             .or_else(|| tocando.as_mut().map(|t| &mut t.item).filter(|i| i.id == id));
         if let Some(item) = alvo {
@@ -276,11 +307,13 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
         EventoMotor::Faixa(caminho) => {
             let repeticao = e.repeticao_enviada && e.tocando.as_ref().is_some_and(|t| t.item.caminho == caminho);
             e.repeticao_enviada = false;
+            let pend = e.pendentes.iter().position(|i| i.travado && i.caminho == caminho);
             let pos = e.fila.iter().position(|i| i.travado && i.caminho == caminho);
-            let item = match (repeticao, pos) {
-                (true, _) => e.tocando.as_ref().map(|t| t.item.clone()).expect("tocando"),
-                (false, Some(p)) => e.fila.remove(p),
-                (false, None) => {
+            let item = match (repeticao, pend, pos) {
+                (true, _, _) => e.tocando.as_ref().map(|t| t.item.clone()).expect("tocando"),
+                (false, Some(p), _) => e.pendentes.remove(p),
+                (false, None, Some(p)) => e.fila.remove(p),
+                (false, None, None) => {
                     let (artista, titulo) = biblioteca::artista_e_musica(Path::new(&caminho));
                     let item = e.novo_item(caminho.clone(), artista, titulo, Tipo::Musica);
                     analisar_em_segundo_plano(app, estado, item.id, caminho);
@@ -295,6 +328,10 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
                 let p = Path::new(&caminho);
                 agenda::nome_sem_validade(&p.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default())
             });
+            if caminho.is_empty() && e.repetir_auto {
+                e.repetir_auto = false;
+                fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 });
+            }
         }
         EventoMotor::Previa(caminho) => {
             if caminho.is_empty() {
@@ -317,7 +354,7 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
             e.ducking = false;
             e.no_ar = false;
             e.tocando = None;
-            e.fila.iter_mut().for_each(|i| i.travado = false);
+            e.destravar_tudo();
             let erro = erro.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
             e.erro_motor = Some(if erro.is_empty() { "O motor de áudio parou.".into() } else { erro });
         }
@@ -374,7 +411,7 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
         if !falta.is_some_and(|f| f <= ANTECEDENCIA) {
             continue;
         }
-        if e.repetir {
+        if e.repetir || e.repetir_auto {
             // Repetir: entrega de novo a mesma música, a fila espera.
             if !e.repeticao_enviada {
                 let atual = e.tocando.as_ref().map(|t| t.item.caminho.clone());
@@ -385,26 +422,47 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
                     }
                 }
             }
-        } else if e.fila.first().is_some_and(|i| !i.travado) {
+        } else if !e.tem_entregue() && (!e.pendentes.is_empty() || !e.fila.is_empty()) {
             e.enviar_proximo();
             emitir(&app, &e);
         }
     });
 }
 
+/// Abaixa a música até zero em 3 s, passa para a próxima e volta o volume.
+fn fade_e_proxima(app: AppHandle, estado: Compartilhado, volume_normal: f64) {
+    std::thread::spawn(move || {
+        const PASSOS: u32 = 15;
+        for i in 1..=PASSOS {
+            std::thread::sleep(Duration::from_millis(200));
+            let e = travar(&estado);
+            if let Some(m) = &e.motor {
+                let _ = m.volume(volume_normal * (1.0 - f64::from(i) / f64::from(PASSOS)));
+            }
+        }
+        let mut e = travar(&estado);
+        if let Some(m) = &e.motor {
+            let _ = m.esvaziar_e_pular();
+            let _ = m.volume(volume_normal);
+        }
+        e.repeticao_enviada = false;
+        e.destravar_tudo();
+        emitir(&app, &e);
+    });
+}
+
 // ---------- agendamentos ----------
 
 /// Coloca arquivos logo depois do que já foi entregue ao motor (entram na sequência).
-fn inserir_na_frente(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, arquivos: Vec<PathBuf>, tipo: Tipo) {
-    let mut pos = e.fila.iter().take_while(|i| i.travado).count();
+/// Agendados que esperam a música acabar: vão para os pendentes (fora da fila).
+fn agendar_em_sequencia(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, arquivos: Vec<PathBuf>, tipo: Tipo) {
     for arq in arquivos {
         let caminho = arq.to_string_lossy().into_owned();
         let titulo = agenda::nome_sem_validade(&arq.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default());
         let pasta = arq.parent().and_then(|d| d.file_name()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let item = e.novo_item(caminho.clone(), pasta, titulo, tipo);
         analisar_em_segundo_plano(app, estado, item.id, caminho);
-        e.fila.insert(pos, item);
-        pos += 1;
+        e.pendentes.push(item);
     }
 }
 
@@ -420,14 +478,19 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
         TipoAgenda::Comercial => {
             let dir = e.dir.clone();
             let bloco = agenda::montar_bloco(ag, &mut e.rodizio, &dir);
-            inserir_na_frente(app, estado, e, bloco, Tipo::Comercial);
+            agendar_em_sequencia(app, estado, e, bloco, Tipo::Comercial);
         }
         TipoAgenda::Ducking => {
             let dir = e.dir.clone();
-            let bloco: Vec<String> = agenda::montar_bloco(ag, &mut e.rodizio, &dir)
-                .into_iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect();
+            let arquivos = agenda::montar_bloco(ag, &mut e.rodizio, &dir);
+            // Se o bloco não cabe no que falta da música, a música repete por baixo
+            // e, quando a fala acabar, sai com fade de 3 s para a próxima.
+            let total: f64 = arquivos.iter().filter_map(|p| analise::duracao(p)).sum();
+            let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
+            if falta.is_some_and(|f| total > f - 1.0) {
+                e.repetir_auto = true;
+            }
+            let bloco: Vec<String> = arquivos.into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
             if let Some(m) = &e.motor {
                 if let Err(err) = m.falar(&bloco) {
                     e.erro_motor = Some(err);
@@ -437,7 +500,7 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
         TipoAgenda::HoraCerta => {
             let agora = chrono::Local::now().time();
             let arquivo = ag.pastas.first().and_then(|p| agenda::arquivo_hora_certa(Path::new(&p.caminho), agora));
-            inserir_na_frente(app, estado, e, arquivo.into_iter().collect(), Tipo::HoraCerta);
+            agendar_em_sequencia(app, estado, e, arquivo.into_iter().collect(), Tipo::HoraCerta);
         }
     }
 }
@@ -755,7 +818,7 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
         let _ = m.esvaziar_e_pular();
     }
     e.repeticao_enviada = false;
-    e.fila.iter_mut().for_each(|i| i.travado = false);
+    e.destravar_tudo();
     emitir(&app, &e);
 }
 
@@ -932,6 +995,8 @@ pub fn run() {
                 rodizio,
                 lista_ativa,
                 por_cima: None,
+                pendentes: vec![],
+                repetir_auto: false,
                 prox_id: 0,
                 motor: None,
                 iniciando_motor: false,

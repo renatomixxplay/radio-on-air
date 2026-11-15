@@ -31,6 +31,9 @@ export interface Retrato {
   previa: Previa | null;
   lista_ativa: string | null;
   por_cima: string | null;
+  aguardando: string | null;
+  repetir_auto: boolean;
+  proximo_agendamento: { horario: string; tipo: TipoAgenda; nome: string } | null;
 }
 
 export type TipoAgenda = "lista" | "comercial" | "ducking" | "hora_certa";
