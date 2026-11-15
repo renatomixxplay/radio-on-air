@@ -37,7 +37,6 @@ pub struct Item {
     titulo: String,
     tipo: Tipo,
     duracao: Option<f64>,
-    onda: Vec<u8>,
     /// Já foi entregue ao motor (não pode mais ser movido/removido).
     travado: bool,
 }
@@ -142,7 +141,7 @@ impl Estado {
 
     fn novo_item(&mut self, caminho: String, artista: String, titulo: String, tipo: Tipo) -> Item {
         self.prox_id += 1;
-        Item { id: self.prox_id, caminho, artista, titulo, tipo, duracao: None, onda: vec![], travado: false }
+        Item { id: self.prox_id, caminho, artista, titulo, tipo, duracao: None, travado: false }
     }
 
     /// Entrega o primeiro da fila ao motor, se ainda não foi.
@@ -163,12 +162,12 @@ fn emitir(app: &AppHandle, e: &Estado) {
     let _ = app.emit("estado", e.retrato());
 }
 
-/// Analisa duração e forma de onda em segundo plano e atualiza o item.
+/// Lê a duração em segundo plano e atualiza o item.
 fn analisar_em_segundo_plano(app: &AppHandle, estado: &Compartilhado, id: u64, caminho: String) {
     let app = app.clone();
     let estado = estado.clone();
     std::thread::spawn(move || {
-        let a = analise::analisar(Path::new(&caminho)).unwrap_or_default();
+        let duracao = analise::duracao(Path::new(&caminho));
         let mut e = travar(&estado);
         let Estado { fila, tocando, .. } = &mut *e;
         let alvo = fila
@@ -176,8 +175,7 @@ fn analisar_em_segundo_plano(app: &AppHandle, estado: &Compartilhado, id: u64, c
             .find(|i| i.id == id)
             .or_else(|| tocando.as_mut().map(|t| &mut t.item).filter(|i| i.id == id));
         if let Some(item) = alvo {
-            item.duracao = (a.duracao > 0.0).then_some(a.duracao);
-            item.onda = a.onda;
+            item.duracao = duracao;
         }
         emitir(&app, &e);
     });

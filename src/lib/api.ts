@@ -10,7 +10,6 @@ export interface Item {
   titulo: string;
   tipo: Tipo;
   duracao: number | null;
-  onda: number[];
   travado: boolean;
 }
 

@@ -12,7 +12,8 @@
   const duracao = $derived(item?.duracao ?? null);
   const progresso = $derived(duracao ? Math.min(1, decorrido / duracao) : 0);
   const falta = $derived(duracao != null ? duracao - decorrido : null);
-  const barras = $derived(item?.onda.length ? item.onda : Array(120).fill(8));
+  /** Últimos 10 segundos: a barra fica vermelha. */
+  const acabando = $derived(item != null && falta != null && falta <= 10);
 </script>
 
 <section class="painel tocando" class:ativo={noAr && item}>
@@ -31,14 +32,8 @@
       <div class="artista">&nbsp;</div>
     {/if}
 
-    <!-- Duas camadas fixas; só o recorte da verde muda (não redesenha as barras). -->
-    <div class="onda-caixa" aria-hidden="true">
-      <div class="onda">
-        {#each barras as v}<span style:height="{Math.max(6, v)}%"></span>{/each}
-      </div>
-      <div class="onda passou" style:clip-path="inset(0 {100 - progresso * 100}% 0 0)">
-        {#each barras as v}<span style:height="{Math.max(6, v)}%"></span>{/each}
-      </div>
+    <div class="barra" aria-hidden="true">
+      <div class="preenchido" class:acabando style:width="{progresso * 100}%"></div>
     </div>
 
     <div class="tempos mono">
@@ -95,25 +90,20 @@
     font-size: 14px;
     margin: 2px 0 10px;
   }
-  .onda-caixa {
-    position: relative;
-    height: 48px;
-    margin-bottom: 6px;
+  .barra {
+    height: 14px;
+    border-radius: 7px;
+    background: #2a2e37;
+    overflow: hidden;
+    margin: 8px 0;
   }
-  .onda {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .onda span {
-    flex: 1;
-    border-radius: 1px;
-    background: #3a3f4a;
-  }
-  .onda.passou span {
+  .preenchido {
+    height: 100%;
     background: var(--verde);
+    border-radius: 7px;
+  }
+  .preenchido.acabando {
+    background: var(--no-ar);
   }
   .tempos {
     display: flex;
