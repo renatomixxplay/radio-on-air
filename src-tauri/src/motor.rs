@@ -16,6 +16,8 @@ pub enum EventoMotor {
     Faixa(String),
     /// A pré-escuta começou um arquivo (vazio = terminou).
     Previa(String),
+    /// Um comercial por cima (ducking) começou.
+    Fala(String),
     /// O processo do Liquidsoap terminou.
     Parou(String),
 }
@@ -80,9 +82,25 @@ fila = request.queue(id="fila")
 cart = request.queue(id="cart")
 musica = fallback(id="musica", track_sensitive=false, [fila, blank(id="silencio")])
 musica.on_track(synchronous=true, fun (m) -> print("@@FAIXA #{{m['filename']}}"))
+# Comercial com ducking: toca por cima. A música abaixa para 20% enquanto há voz
+# (e até 1,5 s depois, para não subir entre um arquivo e outro) e volta suave.
+fala = request.queue(id="fala")
+fala = rms(duration=0.2, fala)
+fala_ar = fallback(track_sensitive=false, [fala, blank()])
+fala_ar.on_track(synchronous=true, fun (m) -> print("@@FALA #{{m['filename']}}"))
+ultima_voz = ref(-100.)
+ganho_fala = ref(1.)
+def ganho() =
+  if fala.is_ready() and fala.rms() > 0.02 then
+    ultima_voz := time()
+  end
+  alvo = if time() - ultima_voz() < 1.5 then 0.2 else 1. end
+  ganho_fala := ganho_fala() + (alvo - ganho_fala()) * 0.15
+  ganho_fala()
+end
 vol = interactive.float("vol", 1.0)
-musica = amplify(vol, musica)
-radio = add(normalize=false, [musica, cart])
+musica = amplify(fun () -> ganho() * vol(), musica)
+radio = add(normalize=false, [musica, fala_ar, cart])
 {saida_ar}
 
 # Pré-escuta: saída separada, não mexe no que está no ar.
@@ -141,6 +159,8 @@ impl Motor {
             for linha in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if let Some(arq) = linha.strip_prefix("@@FAIXA ") {
                     ao_evento(EventoMotor::Faixa(arq.trim().to_string()));
+                } else if let Some(arq) = linha.strip_prefix("@@FALA") {
+                    ao_evento(EventoMotor::Fala(arq.trim().to_string()));
                 } else if let Some(arq) = linha.strip_prefix("@@PRE") {
                     ao_evento(EventoMotor::Previa(arq.trim().to_string()));
                 }
@@ -212,6 +232,14 @@ impl Motor {
     /// Anda `delta` segundos na pré-escuta (negativo volta).
     pub fn previa_andar(&self, delta: f64) -> Result<(), String> {
         self.comando(&format!("preescuta.seek {delta:.2}")).map(|_| ())
+    }
+
+    /// Toca arquivos por cima da música, em sequência (comercial com ducking).
+    pub fn falar(&self, caminhos: &[String]) -> Result<(), String> {
+        for c in caminhos {
+            self.comando(&format!("fala.push {c}"))?;
+        }
+        Ok(())
     }
 
     pub fn cartucho(&self, caminho: &str) -> Result<(), String> {

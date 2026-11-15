@@ -9,6 +9,7 @@
     pausado,
     repetir,
     ducking,
+    porCima,
   }: {
     item: Item | null;
     decorrido: number;
@@ -16,6 +17,7 @@
     pausado: boolean;
     repetir: boolean;
     ducking: boolean;
+    porCima: string | null;
   } = $props();
 
   const duracao = $derived(item?.duracao ?? null);
@@ -30,6 +32,11 @@
     <span class="ponto" class:on={noAr && item && !pausado}><Icone nome="play" tamanho={14} /></span>
     Tocando agora
     {#if pausado}<span class="pausado">pausado</span>{/if}
+    {#if porCima}
+      <span class="por-cima" title="Comercial tocando por cima da música">
+        <Icone nome="megafone" tamanho={14} />{porCima}
+      </span>
+    {/if}
   </div>
 
   <div class="corpo">
@@ -87,6 +94,21 @@
     border-radius: 4px;
     background: var(--laranja-bg);
     color: var(--laranja);
+  }
+  .por-cima {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: var(--tag-comercial-bg);
+    color: var(--tag-comercial);
+    max-width: 50%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .corpo {
     flex: 1;

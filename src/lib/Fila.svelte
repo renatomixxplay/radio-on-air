@@ -2,12 +2,14 @@
   import { api, MIME, tempo, type Arrasto, type Item } from "./api";
   import Icone from "./Icone.svelte";
 
-  let { fila }: { fila: Item[] } = $props();
+  let { fila, lista }: { fila: Item[]; lista: string | null } = $props();
 
   const ETIQUETAS = {
     musica: { nome: "Música", icone: "music" },
     vinheta: { nome: "Vinheta", icone: "vinheta" },
     programa: { nome: "Programa", icone: "microphone" },
+    comercial: { nome: "Comercial", icone: "megafone" },
+    hora_certa: { nome: "Hora certa", icone: "relogio" },
   } as const;
 
   const total = $derived(fila.reduce((s, i) => s + (i.duracao ?? 0), 0));
@@ -55,6 +57,7 @@
 <section class="painel">
   <div class="rotulo">
     <Icone nome="list" tamanho={14} />Fila
+    {#if lista}<span class="lista-ativa" title="Lista de músicas valendo agora"><Icone nome="music" tamanho={13} />{lista}</span>{/if}
     <span class="info mono">{fila.length}/10 · {tempo(total)}</span>
   </div>
   <div
@@ -105,6 +108,14 @@
 </section>
 
 <style>
+  .lista-ativa {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    color: var(--tag-musica);
+    font-size: 13px;
+  }
   .info {
     margin-left: auto;
     font-size: 13px;

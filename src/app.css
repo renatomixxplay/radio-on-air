@@ -23,6 +23,10 @@
   --tag-vinheta: #d4b3f5;
   --tag-programa-bg: #4a3a0c;
   --tag-programa: #ffd866;
+  --tag-comercial-bg: #4a1f2a;
+  --tag-comercial: #ff9fb0;
+  --tag-hora-bg: #1f3346;
+  --tag-hora: #8fd0ff;
   /* destaques que não são etiqueta */
   --azul-claro: #a9c4f5;
   --azul-claro-bg: #1e2533;
@@ -133,6 +137,14 @@ input:focus {
 .tag.vinheta {
   background: var(--tag-vinheta-bg);
   color: var(--tag-vinheta);
+}
+.tag.comercial {
+  background: var(--tag-comercial-bg);
+  color: var(--tag-comercial);
+}
+.tag.hora_certa {
+  background: var(--tag-hora-bg);
+  color: var(--tag-hora);
 }
 .tag.programa {
   background: var(--tag-programa-bg);

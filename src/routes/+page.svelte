@@ -7,6 +7,7 @@
   import Musicas from "$lib/Musicas.svelte";
   import Fila from "$lib/Fila.svelte";
   import Programas from "$lib/Programas.svelte";
+  import Agendamentos from "$lib/Agendamentos.svelte";
 
   let r = $state<Retrato | null>(null);
   let recebidoEm = $state(Date.now());
@@ -83,6 +84,7 @@
           pausado={r.pausado}
           repetir={r.repetir}
           ducking={r.ducking}
+          porCima={r.por_cima}
         />
         <Cartucheira slots={r.cartucheira} />
       </div>
@@ -94,14 +96,16 @@
           previa={previaPrograma ? null : r.previa}
           {previaDecorrido}
         />
-        <Fila fila={r.fila} />
+        <Fila fila={r.fila} lista={r.lista_ativa} />
         <Programas pasta={r.pasta_programas} previa={previaPrograma ? r.previa : null} {previaDecorrido} />
       </div>
     </main>
+  {:else if aba === "agenda"}
+    <Agendamentos />
   {:else}
     <div class="em-breve">
-      <Icone nome={aba === "agenda" ? "calendar" : "settings"} tamanho={32} />
-      <p>{aba === "agenda" ? "Agendamentos" : "Configurações"} chegam nas próximas fases.</p>
+      <Icone nome="settings" tamanho={32} />
+      <p>Configurações chegam nas próximas fases.</p>
     </div>
   {/if}
 </div>

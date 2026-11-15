@@ -138,6 +138,19 @@ impl Biblioteca {
         self.faixas.choose(&mut rand::rng()).map(|f| self.dto(f))
     }
 
+    /// Música aleatória de uma pasta do acervo (e subpastas).
+    /// Se a pasta não estiver dentro do acervo ou estiver vazia, devolve `None`.
+    pub fn aleatoria_em(&self, pasta: &Path) -> Option<FaixaDto> {
+        let raiz = self.raiz.as_ref()?;
+        let rel = pasta.strip_prefix(raiz).ok()?.to_str()?;
+        if rel.is_empty() {
+            return self.aleatoria();
+        }
+        let prefixo = format!("{rel}/");
+        let dentro: Vec<&Faixa> = self.faixas.iter().filter(|f| f.rel.starts_with(&prefixo)).collect();
+        dentro.choose(&mut rand::rng()).map(|f| self.dto(f))
+    }
+
     fn dto(&self, f: &Faixa) -> FaixaDto {
         let raiz = self.raiz.as_deref().unwrap_or(Path::new(""));
         FaixaDto {

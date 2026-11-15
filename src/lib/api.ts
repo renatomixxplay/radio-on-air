@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type Tipo = "musica" | "programa" | "vinheta";
+export type Tipo = "musica" | "programa" | "vinheta" | "comercial" | "hora_certa";
 
 export interface Item {
   id: number;
@@ -29,6 +29,24 @@ export interface Retrato {
   repetir: boolean;
   ducking: boolean;
   previa: Previa | null;
+  lista_ativa: string | null;
+  por_cima: string | null;
+}
+
+export type TipoAgenda = "lista" | "comercial" | "ducking" | "hora_certa";
+
+export interface PastaAnexada {
+  caminho: string;
+  modo: "todos" | "um";
+}
+
+export interface Agendamento {
+  id: number;
+  horario: string;
+  /** Segunda a domingo. */
+  dias: boolean[];
+  tipo: TipoAgenda;
+  pastas: PastaAnexada[];
 }
 
 export interface Previa {
@@ -75,6 +93,9 @@ export const api = {
   previaTocar: (caminho: string) => invoke<void>("previa_tocar", { caminho }),
   previaParar: () => invoke<void>("previa_parar"),
   previaIr: (segundos: number) => invoke<void>("previa_ir", { segundos }),
+  agendamentos: () => invoke<Agendamento[]>("agendamentos"),
+  agendamentoSalvar: (ag: Agendamento) => invoke<Agendamento[]>("agendamento_salvar", { ag }),
+  agendamentoRemover: (id: number) => invoke<Agendamento[]>("agendamento_remover", { id }),
   aoMudar: (fn: (r: Retrato) => void) => listen<Retrato>("estado", (e) => fn(e.payload)),
 };
 

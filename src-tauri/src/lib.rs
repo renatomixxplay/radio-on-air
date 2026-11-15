@@ -1,9 +1,11 @@
+mod agenda;
 mod analise;
 mod biblioteca;
 mod config;
 mod motor;
 mod ordem;
 
+use agenda::{Agendamento, Rodizio, TipoAgenda};
 use biblioteca::{Biblioteca, FaixaDto};
 use config::Config;
 use motor::{EventoMotor, Motor};
@@ -24,11 +26,13 @@ const ANTECEDENCIA: f64 = 5.0;
 const DUCKING_NIVEL: f64 = 0.2;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Tipo {
     Musica,
     Programa,
     Vinheta,
+    Comercial,
+    HoraCerta,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -93,6 +97,12 @@ pub struct Estado {
     /// Botão de ducking: música abaixada para o locutor falar.
     ducking: bool,
     previa: Option<Previa>,
+    agenda: Vec<Agendamento>,
+    rodizio: Rodizio,
+    /// Pasta da lista de músicas que vale agora (a fila puxa dela).
+    lista_ativa: Option<String>,
+    /// Comercial com ducking tocando por cima agora.
+    por_cima: Option<String>,
     prox_id: u64,
     motor: Option<Motor>,
     /// O motor está sendo ligado em segundo plano.
@@ -148,6 +158,8 @@ struct Retrato {
     repetir: bool,
     ducking: bool,
     previa: Option<PreviaDto>,
+    lista_ativa: Option<String>,
+    por_cima: Option<String>,
 }
 
 impl Estado {
@@ -178,6 +190,10 @@ impl Estado {
             erro_motor: self.erro_motor.clone(),
             repetir: self.repetir,
             ducking: self.ducking,
+            lista_ativa: self.lista_ativa.as_ref().map(|p| {
+                Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            }),
+            por_cima: self.por_cima.clone(),
             previa: self.previa.as_ref().map(|p| PreviaDto {
                 caminho: p.caminho.clone(),
                 titulo: p.titulo.clone(),
@@ -238,7 +254,8 @@ fn analisar_em_segundo_plano(app: &AppHandle, estado: &Compartilhado, id: u64, c
 /// Mantém o mínimo da fila puxando músicas aleatórias do acervo.
 fn completar_fila(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     while e.fila.len() <= FILA_MINIMO && e.fila.len() < FILA_MAXIMO {
-        let Some(f) = e.bib.aleatoria() else { break };
+        let da_lista = e.lista_ativa.as_ref().and_then(|p| e.bib.aleatoria_em(Path::new(p)));
+        let Some(f) = da_lista.or_else(|| e.bib.aleatoria()) else { break };
         let item = e.novo_item(f.caminho, f.artista, f.musica, Tipo::Musica);
         analisar_em_segundo_plano(app, estado, item.id, item.caminho.clone());
         e.fila.push(item);
@@ -273,6 +290,12 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
             e.tocando = Some(Tocando { item, inicio: Instant::now(), pausa_desde: None, pausado_total: Duration::ZERO });
             completar_fila(app, estado, &mut e);
         }
+        EventoMotor::Fala(caminho) => {
+            e.por_cima = (!caminho.is_empty()).then(|| {
+                let p = Path::new(&caminho);
+                agenda::nome_sem_validade(&p.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default())
+            });
+        }
         EventoMotor::Previa(caminho) => {
             if caminho.is_empty() {
                 if e.previa.as_ref().is_some_and(|p| p.iniciada) {
@@ -290,6 +313,7 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
         EventoMotor::Parou(erro) => {
             e.motor = None;
             e.previa = None;
+            e.por_cima = None;
             e.ducking = false;
             e.no_ar = false;
             e.tocando = None;
@@ -366,6 +390,124 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
             emitir(&app, &e);
         }
     });
+}
+
+// ---------- agendamentos ----------
+
+/// Coloca arquivos logo depois do que já foi entregue ao motor (entram na sequência).
+fn inserir_na_frente(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, arquivos: Vec<PathBuf>, tipo: Tipo) {
+    let mut pos = e.fila.iter().take_while(|i| i.travado).count();
+    for arq in arquivos {
+        let caminho = arq.to_string_lossy().into_owned();
+        let titulo = agenda::nome_sem_validade(&arq.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default());
+        let pasta = arq.parent().and_then(|d| d.file_name()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let item = e.novo_item(caminho.clone(), pasta, titulo, tipo);
+        analisar_em_segundo_plano(app, estado, item.id, caminho);
+        e.fila.insert(pos, item);
+        pos += 1;
+    }
+}
+
+fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agendamento) {
+    match ag.tipo {
+        TipoAgenda::Lista => {
+            if let Some(p) = ag.pastas.first() {
+                e.lista_ativa = Some(p.caminho.clone());
+            }
+        }
+        // Comerciais e hora certa só quando a rádio está no ar.
+        _ if !e.no_ar => {}
+        TipoAgenda::Comercial => {
+            let dir = e.dir.clone();
+            let bloco = agenda::montar_bloco(ag, &mut e.rodizio, &dir);
+            inserir_na_frente(app, estado, e, bloco, Tipo::Comercial);
+        }
+        TipoAgenda::Ducking => {
+            let dir = e.dir.clone();
+            let bloco: Vec<String> = agenda::montar_bloco(ag, &mut e.rodizio, &dir)
+                .into_iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect();
+            if let Some(m) = &e.motor {
+                if let Err(err) = m.falar(&bloco) {
+                    e.erro_motor = Some(err);
+                }
+            }
+        }
+        TipoAgenda::HoraCerta => {
+            let agora = chrono::Local::now().time();
+            let arquivo = ag.pastas.first().and_then(|p| agenda::arquivo_hora_certa(Path::new(&p.caminho), agora));
+            inserir_na_frente(app, estado, e, arquivo.into_iter().collect(), Tipo::HoraCerta);
+        }
+    }
+}
+
+/// Confere a agenda a cada segundo e dispara o que vence em cada minuto novo.
+fn iniciar_relogio_agenda(app: AppHandle, estado: Compartilhado) {
+    use chrono::Timelike;
+    std::thread::spawn(move || {
+        let minuto = |t: chrono::DateTime<chrono::Local>| (t.date_naive(), t.hour(), t.minute());
+        let mut ultimo = minuto(chrono::Local::now());
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+            let agora = minuto(chrono::Local::now());
+            if agora == ultimo {
+                continue;
+            }
+            ultimo = agora;
+            let mut e = travar(&estado);
+            let vencem = agenda::do_minuto(&e.agenda, agora.0, agora.1, agora.2);
+            if vencem.is_empty() {
+                continue;
+            }
+            for ag in &vencem {
+                disparar(&app, &estado, &mut e, ag);
+            }
+            emitir(&app, &e);
+        }
+    });
+}
+
+#[tauri::command]
+fn agendamentos(estado: State<Compartilhado>) -> Vec<Agendamento> {
+    travar(&estado).agenda.clone()
+}
+
+#[tauri::command]
+fn agendamento_salvar(app: AppHandle, estado: State<Compartilhado>, mut ag: Agendamento) -> Result<Vec<Agendamento>, String> {
+    if ag.hora_minuto().is_none() {
+        return Err("Horário inválido.".into());
+    }
+    if !ag.dias.iter().any(|d| *d) {
+        return Err("Marque pelo menos um dia.".into());
+    }
+    if ag.pastas.is_empty() {
+        return Err("Escolha pelo menos uma pasta.".into());
+    }
+    let mut e = travar(&estado);
+    if ag.id == 0 {
+        ag.id = e.agenda.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        e.agenda.push(ag);
+    } else if let Some(a) = e.agenda.iter_mut().find(|a| a.id == ag.id) {
+        *a = ag;
+    } else {
+        e.agenda.push(ag);
+    }
+    agenda::ordenar(&mut e.agenda);
+    agenda::salvar(&e.dir, &e.agenda).map_err(|err| err.to_string())?;
+    e.lista_ativa = agenda::lista_vigente(&e.agenda);
+    emitir(&app, &e);
+    Ok(e.agenda.clone())
+}
+
+#[tauri::command]
+fn agendamento_remover(app: AppHandle, estado: State<Compartilhado>, id: u64) -> Result<Vec<Agendamento>, String> {
+    let mut e = travar(&estado);
+    e.agenda.retain(|a| a.id != id);
+    agenda::salvar(&e.dir, &e.agenda).map_err(|err| err.to_string())?;
+    e.lista_ativa = agenda::lista_vigente(&e.agenda);
+    emitir(&app, &e);
+    Ok(e.agenda.clone())
 }
 
 // ---------- acervo ----------
@@ -769,6 +911,9 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("pasta de dados");
             let config = Config::carregar(&dir);
+            let agenda = agenda::carregar(&dir);
+            let rodizio = Rodizio::carregar(&dir);
+            let lista_ativa = agenda::lista_vigente(&agenda);
             let estado: Compartilhado = Arc::new(Mutex::new(Estado {
                 dir,
                 config,
@@ -783,6 +928,10 @@ pub fn run() {
                 repeticao_enviada: false,
                 ducking: false,
                 previa: None,
+                agenda,
+                rodizio,
+                lista_ativa,
+                por_cima: None,
                 prox_id: 0,
                 motor: None,
                 iniciando_motor: false,
@@ -793,7 +942,8 @@ pub fn run() {
             let handle = app.handle().clone();
             iniciar_motor(&handle, &estado, &mut travar(&estado));
             carregar_biblioteca(handle.clone(), estado.clone(), false);
-            iniciar_relogio(handle, estado.clone());
+            iniciar_relogio(handle.clone(), estado.clone());
+            iniciar_relogio_agenda(handle, estado.clone());
             iniciar_gravador_indice(estado);
             Ok(())
         })
@@ -818,6 +968,9 @@ pub fn run() {
             previa_tocar,
             previa_parar,
             previa_ir,
+            agendamentos,
+            agendamento_salvar,
+            agendamento_remover,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao abrir o Radio On Air");

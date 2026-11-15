@@ -98,7 +98,7 @@ Funciona por **horário + dias da semana**. Não existe "sequência/receita": o 
 | ✅ **Lista de músicas** | A partir do horário, a fila passa a puxar **aleatório** da pasta escolhida (ex.: `Músicas/Gaúchas`). Vale até a próxima lista. |
 | ✅ **Comercial** | No horário, **espera a música atual acabar** e toca o comercial. |
 | ✅ **Comercial com ducking** | No horário, entra **por cima** da música: abaixa a música, toca a fala e sobe a música de novo. |
-| ✅ **Hora certa** | Toca o arquivo da hora atual da pasta de hora certa. ❓ Padrão de nome dos arquivos e se espera a música acabar ou entra com ducking. |
+| ✅ **Hora certa** | Toca o arquivo da hora atual da pasta de hora certa. Lê hora e minuto do nome (`HRS08_MIN10`, `08-10`, `08h10`, `0810`, `8` = hora cheia). 💡 Por enquanto **espera a música acabar** (como comercial) — confirmar. |
 
 - ✅ **Programas dos locutores** entram de dois jeitos: o operador **adiciona na fila pelo ➕**, ou é **agendado como comercial** (agendamento apontando para a pasta do programa).
 
@@ -148,7 +148,7 @@ O programa precisa ser **bem leve**. Metas para um PC antigo (2 núcleos, 4 GB d
 ## 10. Fases (proposta)
 
 1. ✅ **Tocando** (feita em 15/11/2026, testada no Mac) — programa abre, lê a pasta de músicas (índice + atualização automática), busca, fila com mínimo de 3, Tocando agora, botões, cartucheira, saída na caixa. **Medir memória/CPU aqui** para validar a meta de leveza.
-2. **Agendamentos** — lista de músicas, comercial, comercial com ducking (detecta fala), hora certa, validade, rodízio, botão "Abaixar música".
+2. ✅ **Agendamentos** (feita em 15/11/2026, testada no Mac) — lista de músicas, comercial, comercial com ducking (detecta fala), hora certa, validade, rodízio, botão "Abaixar música".
 3. **Saídas** — pré-escuta, transmissão Icecast, gravação.
 4. **Acabamento** — tela de configurações, programas dos locutores, instalador `.deb`/AppImage.
 
