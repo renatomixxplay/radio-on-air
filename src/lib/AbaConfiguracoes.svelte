@@ -58,12 +58,9 @@
 </script>
 
 <div class="aba">
-  <section class="painel caixa">
-    <div class="cabeca">
-      <div class="titulo">Configurações</div>
-    </div>
-    <div class="lista">
-      <div class="grupo">Ao abrir o programa</div>
+  <div class="coluna">
+    <h3 class="grupo">Ao abrir o programa</h3>
+    <section class="painel cartao">
       <div class="linha item">
         <div class="textos">
           <span>Entrar no ar sozinho</span>
@@ -73,8 +70,9 @@
           <span></span>
         </button>
       </div>
-
-      <div class="grupo">Músicas</div>
+    </section>
+    <h3 class="grupo">Músicas</h3>
+    <section class="painel cartao">
       <div class="linha item">
         <span class="cor-pasta"><Icone nome="folder" tamanho={20} /></span>
         <div class="textos">
@@ -90,8 +88,9 @@
         </div>
         <button class="botao" onclick={api.atualizarMusicas}><Icone nome="refresh" tamanho={16} /> Atualizar músicas</button>
       </div>
-
-      <div class="grupo">Senha e bloqueios</div>
+    </section>
+    <h3 class="grupo">Senha e bloqueios</h3>
+    <section class="painel cartao">
       {#if r.protegido}
         {#each AREAS as a}
           <div class="linha item">
@@ -127,46 +126,40 @@
           <button class="botao remover" onclick={removerSenha}>Remover</button>
         </div>
       {/if}
-    </div>
-  </section>
+    </section>
+  </div>
 </div>
-
 <style>
   .aba {
     flex: 1;
     min-height: 0;
+    overflow-y: auto;
+    padding: 10px 10px 20px;
+  }
+  .coluna {
     display: flex;
-    padding: 10px;
+    flex-direction: column;
   }
-  .caixa {
-    flex: 1;
-    min-width: 0;
-  }
-  .cabeca {
-    padding: 14px;
-    border-bottom: 0.5px solid var(--borda);
-  }
-  .titulo {
-    font-size: 16px;
-    font-weight: 500;
-  }
-  /* Faixa de título de cada grupo: bem visível para separar as seções. */
+  /* Cada grupo é um cartão próprio; o título fica acima, com espaço entre eles. */
   .grupo {
-    padding: 10px 14px;
-    font-size: 13px;
+    margin: 14px 4px 8px;
+    font-size: 15px;
     font-weight: 500;
-    color: var(--texto-2);
-    background: var(--painel-2);
-    border-top: 1px solid var(--borda-forte);
-    border-bottom: 1px solid var(--borda-forte);
+    color: var(--texto);
   }
   .grupo:first-child {
-    border-top: none;
+    margin-top: 4px;
+  }
+  .cartao {
+    overflow: hidden;
   }
   .item {
     padding: 12px 14px;
     gap: 12px;
-    border-bottom: 1px solid #2c313b;
+  }
+  .cartao > .item:last-child,
+  .cartao > .msg:last-child {
+    border-bottom: none;
   }
   .textos {
     flex: 1;
