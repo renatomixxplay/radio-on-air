@@ -11,19 +11,29 @@
   }: { pasta: string | null; previa: Previa | null; previaDecorrido: number } = $props();
 
   let pastas = $state<Pasta[]>([]);
-  let aberta = $state<Pasta | null>(null);
+  let escolhida = $state("");
   let arquivos = $state<Pasta[]>([]);
 
+  // Lê as pastas dos programas; mantém a escolhida se ela ainda existir.
   $effect(() => {
     pasta;
-    aberta = null;
-    api.programas().then((p) => (pastas = p));
+    api.programas().then((p) => {
+      pastas = p;
+      if (!p.some((x) => x.caminho === escolhida)) escolhida = p[0]?.caminho ?? "";
+    });
   });
 
-  async function abrir(p: Pasta) {
-    aberta = p;
-    arquivos = await api.arquivosDaPasta(p.caminho);
-  }
+  // Arquivos do programa escolhido no seletor.
+  $effect(() => {
+    const c = escolhida;
+    if (!c) {
+      arquivos = [];
+      return;
+    }
+    api.arquivosDaPasta(c).then((a) => {
+      if (escolhida === c) arquivos = a;
+    });
+  });
 
   async function escolherPasta() {
     const p = await open({ directory: true, multiple: false, title: "Pasta dos programas" });
@@ -39,16 +49,11 @@
 
 <section class="painel">
   <div class="rotulo">
-    {#if aberta}
-      <button class="voltar" onclick={() => (aberta = null)} aria-label="Voltar"><Icone nome="voltar" tamanho={14} /></button>
-      <span class="reticencias">{aberta.nome}</span>
-    {:else}
-      <Icone nome="microphone" tamanho={14} />Programas
-      {#if pasta}
-        <button class="trocar" onclick={escolherPasta} title={`Pasta: ${pasta}\nClique para trocar`} aria-label="Trocar pasta de programas">
-          <Icone nome="folderOpen" tamanho={14} />
-        </button>
-      {/if}
+    <Icone nome="microphone" tamanho={14} />Programas
+    {#if pasta}
+      <button class="trocar" onclick={escolherPasta} title={`Pasta: ${pasta}\nClique para trocar`} aria-label="Trocar pasta de programas">
+        <Icone nome="folderOpen" tamanho={14} />
+      </button>
     {/if}
   </div>
 
@@ -57,7 +62,17 @@
       Escolha a pasta dos programas<br />(uma subpasta por locutor).<br />
       <button class="acao" onclick={escolherPasta}><Icone nome="folderOpen" tamanho={14} /> Escolher pasta</button>
     </div>
-  {:else if aberta}
+  {:else if pastas.length === 0}
+    <div class="vazio">Nenhum programa ainda.<br />Crie uma subpasta para cada locutor.</div>
+  {:else}
+    <div class="seletor">
+      <select bind:value={escolhida} aria-label="Programa">
+        {#each pastas as p (p.caminho)}
+          <option value={p.caminho}>{p.nome}</option>
+        {/each}
+      </select>
+      <span class="seta"><Icone nome="abrir" tamanho={18} /></span>
+    </div>
     <div class="lista">
       {#each arquivos as a (a.caminho)}
         <div
@@ -86,22 +101,45 @@
         <div class="vazio">Pasta sem arquivos de áudio</div>
       {/each}
     </div>
-  {:else}
-    <div class="lista">
-      {#each pastas as p (p.caminho)}
-        <button class="linha pasta" onclick={() => abrir(p)}>
-          <span class="cor-pasta"><Icone nome="folder" tamanho={16} /></span>
-          <span class="reticencias">{p.nome}</span>
-        </button>
-      {:else}
-        <div class="vazio">Nenhum programa ainda</div>
-      {/each}
-    </div>
   {/if}
   {#if pasta && previa}<PreEscuta {previa} decorrido={previaDecorrido} />{/if}
 </section>
 
 <style>
+  .seletor {
+    position: relative;
+    margin: 0 10px 8px;
+  }
+  .seta {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    color: var(--texto-2);
+    pointer-events: none;
+  }
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 40px;
+    padding: 0 36px 0 12px;
+    font: inherit;
+    font-size: 15px;
+    color: var(--texto);
+    background: var(--campo);
+    border: 0.5px solid var(--borda-forte);
+    border-radius: 8px;
+    outline: none;
+    cursor: pointer;
+  }
+  select:hover {
+    border-color: #4a5060;
+  }
+  select:focus {
+    border-color: var(--azul);
+  }
   .trocar {
     margin-left: auto;
     border: none;
@@ -113,28 +151,8 @@
   .trocar:hover {
     color: var(--texto);
   }
-  .voltar {
-    border: none;
-    background: transparent;
-    padding: 0;
-    display: flex;
-    color: var(--texto-2);
-  }
-  .pasta {
-    width: 100%;
-    border: none;
-    border-bottom: 0.5px solid var(--linha);
-    border-radius: 0;
-    background: transparent;
-    text-align: left;
-  }
-  .pasta:hover,
   .item:hover {
     background: var(--painel-2);
-  }
-  .cor-pasta {
-    color: var(--pasta);
-    display: flex;
   }
   .item {
     cursor: grab;
