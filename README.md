@@ -2,7 +2,7 @@
 
 Automação de rádio (rádio DJ) **leve e open source** para Linux, feita para **rádios comunitárias**.
 
-> Em desenvolvimento — Fase 1 (tocar, fila, busca, cartucheira). Veja o [ESCOPO.md](ESCOPO.md).
+> Em desenvolvimento — Fases 1 (tocar, fila, busca, cartucheira, pré-escuta) e 2 (agendamentos, pastas, senha) prontas; em teste. Veja o [ESCOPO.md](ESCOPO.md), inclusive a lista do que testar.
 
 ## Como funciona
 
@@ -11,7 +11,7 @@ Automação de rádio (rádio DJ) **leve e open source** para Linux, feita para 
 - **Sem banco de dados:** tudo em pastas e arquivos de texto.
   - Músicas no padrão `Artista - Música.mp3`, em qualquer subpasta.
   - Índice do acervo em `indice.txt`, atualizado sozinho quando entra/sai música.
-  - Configurações em `config.json`.
+  - Configurações em `config.json`, agendamentos em `agendamentos.json`, rodízio em `rodizio.json`.
 
 Os arquivos de dados ficam em `~/.local/share/org.radioonair.app/` (Linux)
 ou `~/Library/Application Support/org.radioonair.app/` (macOS).
@@ -24,6 +24,8 @@ Requisitos: Node 22+, Rust (stable) e Liquidsoap 2.4+.
 npm install
 npm run tauri dev
 ```
+
+Para o PATH do Rust instalado pelo rustup: `export PATH="$HOME/.cargo/bin:$PATH"`.
 
 No Linux (Ubuntu/Debian), o Liquidsoap vem pelo `apt install liquidsoap`.
 No macOS, dá para compilar isolado com o [opam](https://opam.ocaml.org) em `~/.opam`
