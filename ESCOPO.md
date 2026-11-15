@@ -26,6 +26,7 @@ Software de automação de rádio (rádio DJ) para Linux, open source, feito par
 | Arquivos de dados | Texto (`.m3u`, `.toml`/`.json`, `.txt`) | Fácil de ler, editar e fazer backup |
 
 - ✅ Alvo: Linux (Ubuntu/Debian), pacote `.deb` e AppImage.
+- 💡 Possivelmente **Windows** no futuro (`.exe`/`.msi`; o Liquidsoap tem versão Windows).
 - ✅ Desenvolvimento e testes também no **macOS** (Tauri e Liquidsoap rodam no Mac).
 
 ## 3. Telas
