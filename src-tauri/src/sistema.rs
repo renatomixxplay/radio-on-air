@@ -18,12 +18,17 @@ pub fn comando(exe: impl AsRef<OsStr>) -> Command {
     c
 }
 
-/// Prepara o Liquidsoap para rodar escondido e de dentro da própria pasta: a
-/// versão de Windows grava um cache na pasta de onde é aberta (que pode ser
-/// uma pasta protegida do sistema).
+/// Prepara o Liquidsoap para rodar escondido. No Windows ele fica instalado em
+/// "Arquivos de Programas", onde não pode gravar: o cache dele (e a pasta de
+/// trabalho) vão para `C:\ProgramData\RadioOnAir`, sem acento e gravável.
 pub fn liquidsoap(exe: &Path) -> Command {
     let mut c = comando(exe);
-    if let Some(pasta) = exe.parent().filter(|p| p.is_dir()) {
+    if cfg!(windows) {
+        let base = pasta_sem_acento();
+        let cache = base.join("cache");
+        let _ = std::fs::create_dir_all(&cache);
+        c.current_dir(&base).env("LIQ_CACHE_USER_DIR", &cache).env("LIQ_CACHE_SYSTEM_DIR", &cache);
+    } else if let Some(pasta) = exe.parent().filter(|p| p.is_dir()) {
         c.current_dir(pasta);
     }
     c
@@ -78,8 +83,9 @@ pub fn pasta_motor(dir_dados: &Path) -> std::path::PathBuf {
     }
 }
 
-/// Liquidsoap instalado numa pasta com acento: copia (uma vez) a pasta dele para
-/// uma sem acento e devolve o novo executável.
+/// Liquidsoap instalado numa pasta com acento (só se alguém escolher outra pasta
+/// na instalação; o padrão é "Arquivos de Programas"): copia (uma vez) a pasta
+/// dele para uma sem acento e devolve o novo executável.
 pub fn liquidsoap_sem_acento(exe: &Path) -> std::path::PathBuf {
     if !cfg!(windows) || so_ascii(exe) {
         return exe.to_path_buf();
