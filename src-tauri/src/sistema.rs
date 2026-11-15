@@ -1,7 +1,7 @@
 //! O que muda de um sistema para outro ao abrir e fechar programas.
 
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Prepara um programa para rodar escondido. No Windows, sem isto cada
@@ -24,7 +24,7 @@ pub fn comando(exe: impl AsRef<OsStr>) -> Command {
 pub fn liquidsoap(exe: &Path) -> Command {
     let mut c = comando(exe);
     if cfg!(windows) {
-        let base = pasta_sem_acento();
+        let base = pasta_windows();
         let cache = base.join("cache");
         let _ = std::fs::create_dir_all(&cache);
         c.current_dir(&base).env("LIQ_CACHE_USER_DIR", &cache).env("LIQ_CACHE_SYSTEM_DIR", &cache);
@@ -56,6 +56,100 @@ pub fn fechar_antigo(arquivo_pid: &Path, marca: &str) {
     }
 }
 
+/// No Windows: amarra o Liquidsoap ao programa. Se o programa sumir de
+/// qualquer jeito (fechado, travado, encerrado no Gerenciador de Tarefas), o
+/// Windows fecha o Liquidsoap junto e a placa não fica tocando sozinha.
+/// No Linux e no Mac, o fechamento normal já encerra o motor (e um que tenha
+/// sobrado é fechado ao abrir de novo).
+pub fn amarrar(_processo: &std::process::Child) {
+    #[cfg(windows)]
+    trabalho::amarrar(_processo);
+}
+
+#[cfg(windows)]
+mod trabalho {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    use std::sync::OnceLock;
+
+    type Handle = *mut c_void;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct LimitesBasicos {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct LimitesEstendidos {
+        basicos: LimitesBasicos,
+        io: [u64; 6],
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(atributos: *const c_void, nome: *const u16) -> Handle;
+        fn SetInformationJobObject(job: Handle, classe: i32, info: *const c_void, tamanho: u32) -> i32;
+        fn AssignProcessToJobObject(job: Handle, processo: Handle) -> i32;
+    }
+
+    /// Um "trabalho" do Windows que vive enquanto o programa viver; nunca é
+    /// fechado à mão: quando o programa acaba, o Windows fecha e leva junto
+    /// todos os processos dentro dele.
+    fn trabalho() -> Option<usize> {
+        static TRABALHO: OnceLock<Option<usize>> = OnceLock::new();
+        *TRABALHO.get_or_init(|| {
+            // SAFETY: chamadas simples à API do Windows com estrutura do tamanho certo.
+            unsafe {
+                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if job.is_null() {
+                    return None;
+                }
+                let mut info = LimitesEstendidos::default();
+                info.basicos.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let ok = SetInformationJobObject(
+                    job,
+                    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                    &info as *const _ as *const c_void,
+                    std::mem::size_of::<LimitesEstendidos>() as u32,
+                );
+                (ok != 0).then_some(job as usize)
+            }
+        })
+    }
+
+    pub fn amarrar(processo: &std::process::Child) -> bool {
+        let Some(job) = trabalho() else { return false };
+        // SAFETY: o handle do processo é válido enquanto `processo` existir.
+        unsafe { AssignProcessToJobObject(job as Handle, processo.as_raw_handle() as Handle) != 0 }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn processo_entra_no_trabalho() {
+        let mut filho = crate::sistema::comando("cmd").args(["/C", "ping -n 3 127.0.0.1 >NUL"]).spawn().unwrap();
+        assert!(amarrar(&filho));
+        let _ = filho.kill();
+        let _ = filho.wait();
+    }
+}
+
 // ---------- caminhos com acento (Windows) ----------
 //
 // O Liquidsoap de Windows não abre arquivos cujo caminho tem acento (ex.: um
@@ -67,31 +161,53 @@ fn so_ascii(p: &Path) -> bool {
     p.to_str().is_some_and(|s| s.is_ascii())
 }
 
-/// Pasta sem acento para o Liquidsoap (Windows): `C:\ProgramData\RadioOnAir`.
-fn pasta_sem_acento() -> std::path::PathBuf {
-    let base = std::env::var_os("PROGRAMDATA").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\ProgramData".into());
+/// Pasta de dados no Windows: `C:\\ProgramData\\RadioOnAir`. Fica tudo nela
+/// (configurações, agenda, índice, motor e registros): sem acento, que o
+/// Liquidsoap de Windows não abre, e fácil de achar para fazer cópia.
+fn pasta_windows() -> PathBuf {
+    let base = std::env::var_os("PROGRAMDATA").map(PathBuf::from).unwrap_or_else(|| "C:\\ProgramData".into());
     base.join("RadioOnAir")
 }
 
-/// Onde ficam script, registro e pid do motor e da captura. No Windows, se a
-/// pasta de dados tiver acento, vai para uma pasta sem acento.
-pub fn pasta_motor(dir_dados: &Path) -> std::path::PathBuf {
-    if cfg!(windows) && !so_ascii(dir_dados) {
-        pasta_sem_acento()
-    } else {
-        dir_dados.to_path_buf()
+/// Onde o programa guarda seus dados. No Linux e no Mac, a pasta padrão do
+/// sistema (`padrao`). No Windows, `C:\\ProgramData\\RadioOnAir`; quem usava a
+/// versão antiga (dados em AppData) tem tudo trazido para lá na primeira vez.
+pub fn pasta_dados(padrao: PathBuf) -> PathBuf {
+    if !cfg!(windows) {
+        return padrao;
     }
+    let nova = pasta_windows();
+    if !nova.join("config.json").exists() && padrao.join("config.json").exists() {
+        let _ = std::fs::create_dir_all(&nova);
+        let mut tudo_certo = true;
+        for item in std::fs::read_dir(&padrao).into_iter().flatten().flatten() {
+            let alvo = nova.join(item.file_name());
+            let copiou = if alvo.exists() {
+                Ok(())
+            } else if item.path().is_dir() {
+                copiar_pasta(&item.path(), &alvo)
+            } else {
+                std::fs::copy(item.path(), &alvo).map(|_| ())
+            };
+            tudo_certo &= copiou.is_ok();
+        }
+        // Só apaga a pasta antiga se tudo foi copiado.
+        if tudo_certo {
+            let _ = std::fs::remove_dir_all(&padrao);
+        }
+    }
+    nova
 }
 
 /// Liquidsoap instalado numa pasta com acento (só se alguém escolher outra pasta
 /// na instalação; o padrão é "Arquivos de Programas"): copia (uma vez) a pasta
 /// dele para uma sem acento e devolve o novo executável.
-pub fn liquidsoap_sem_acento(exe: &Path) -> std::path::PathBuf {
+pub fn liquidsoap_sem_acento(exe: &Path) -> PathBuf {
     if !cfg!(windows) || so_ascii(exe) {
         return exe.to_path_buf();
     }
     let (Some(origem), Some(nome)) = (exe.parent(), exe.file_name()) else { return exe.to_path_buf() };
-    let destino = pasta_sem_acento().join("liquidsoap");
+    let destino = pasta_windows().join("liquidsoap");
     let novo = destino.join(nome);
     // Copia de novo só se mudou (outra versão do instalador).
     let tamanho = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();

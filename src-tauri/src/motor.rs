@@ -261,7 +261,6 @@ impl Motor {
         ao_evento: impl Fn(EventoMotor) + Send + 'static,
     ) -> Result<Self, String> {
         let porta = porta_livre();
-        let dir_dados = &crate::sistema::pasta_motor(dir_dados);
         std::fs::create_dir_all(dir_dados).map_err(|e| e.to_string())?;
         let arquivo = dir_dados.join("motor.liq");
         let log = dir_dados.join("motor.log").to_string_lossy().into_owned();
@@ -277,6 +276,7 @@ impl Motor {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("não consegui abrir o Liquidsoap: {e}"))?;
+        crate::sistema::amarrar(&processo);
 
         let _ = std::fs::write(&arquivo_pid, processo.id().to_string());
         let stdout = processo.stdout.take().expect("stdout");

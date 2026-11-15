@@ -62,7 +62,8 @@
     return p.decorrido + (p.iniciada ? Math.max(0, passou) : 0);
   });
   const previaPrograma = $derived(
-    !!r?.previa && r.pastas.some((p) => r!.previa!.caminho.startsWith(p.caminho + "/")),
+    // No Windows a barra do caminho é a invertida.
+    !!r?.previa && r.pastas.some((p) => [p.caminho + "/", p.caminho + "\\"].some((c) => r!.previa!.caminho.startsWith(c))),
   );
   const relogio = $derived(agora.toLocaleTimeString("pt-BR", { hour12: false }));
 </script>

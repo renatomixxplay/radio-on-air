@@ -44,7 +44,7 @@
     lista = await api.agendamentos();
   });
 
-  const nomePasta = (c: string) => c.split("/").filter(Boolean).pop() ?? c;
+  const nomePasta = (c: string) => c.split(/[\\/]/).filter(Boolean).pop() ?? c;
   const tipoInfo = (t: TipoAgenda) => TIPOS.find((x) => x.tipo === t)!;
 
   const pastaHora = (a: Agendamento, k: ParteHora) => (k === "hora" ? (a.pastas[0]?.caminho ?? null) : (a[k] ?? null));

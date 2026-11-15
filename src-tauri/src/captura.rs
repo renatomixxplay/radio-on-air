@@ -143,7 +143,6 @@ impl Captura {
         script: String,
         ao_evento: impl Fn(EventoCaptura) + Send + 'static,
     ) -> Result<Self, String> {
-        let dir_dados = &crate::sistema::pasta_motor(dir_dados);
         std::fs::create_dir_all(dir_dados).map_err(|e| e.to_string())?;
         let arquivo = dir_dados.join("captura.liq");
         std::fs::write(&arquivo, script).map_err(|e| e.to_string())?;
@@ -158,6 +157,7 @@ impl Captura {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("não consegui abrir o Liquidsoap: {e}"))?;
+        crate::sistema::amarrar(&processo);
         let _ = std::fs::write(&arquivo_pid, processo.id().to_string());
 
         let stdout = processo.stdout.take().expect("stdout");

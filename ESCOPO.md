@@ -37,7 +37,7 @@ Software de automação de rádio (rádio DJ) para Linux, open source, feito par
 
 ### Arquivos de dados
 
-Ficam em `~/.local/share/org.radioonair.app/` (Linux) ou `~/Library/Application Support/org.radioonair.app/` (Mac):
+Ficam em `~/.local/share/org.radioonair.app/` (Linux), `~/Library/Application Support/org.radioonair.app/` (Mac) ou `C:\ProgramData\RadioOnAir\` (Windows):
 
 | Arquivo | Conteúdo |
 |---|---|
@@ -53,7 +53,9 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux) ou `~/Library/Application 
 - O **Liquidsoap 2.4.6 para Windows vai dentro do instalador** (pasta de recursos `liquidsoap/`): não precisa instalar nada além do programa.
 - Som pelo **PortAudio** (saída, pré-escuta e entrada escolhidas pelo nome da placa); gravação e transmissão em MP3 pelo **FFmpeg** (o Liquidsoap do Windows não tem o codificador lame). Mesma folga de 1 s do Mac contra travadinhas.
 - Liquidsoap e consultas de placas abrem **sem janela de terminal**; motor antigo preso é fechado com `tasklist`/`taskkill`.
-- Instala em **Arquivos de Programas** (`C:\Program Files\Radio On Air`, pede administrador uma vez). O cache do Liquidsoap vai para `C:\ProgramData\RadioOnAir\cache`.
+- Instala em **Arquivos de Programas** (`C:\Program Files\Radio On Air`, pede administrador uma vez). **Todos os dados** (configurações, agenda, índice, motor, registros, cache do Liquidsoap) ficam em `C:\ProgramData\RadioOnAir`. Quem usava a versão que guardava em `AppData\Roaming\org.radioonair.app` tem tudo trazido sozinho na primeira vez.
+- Fechou o programa, fecha o motor (e gravação/transmissão). No Windows o Liquidsoap fica "amarrado" ao programa (Job Object): se o programa cair ou for encerrado no Gerenciador de Tarefas, o Windows fecha o motor junto.
+- Caminhos no Windows usam `\`: o código compara caminhos por partes (`Path::starts_with`), nunca procurando `/` no texto.
 - **Caminhos com acento** (ex.: usuário do Windows "Rádio Cidade"): o Liquidsoap de Windows não abre arquivos com acento no caminho. Se alguém instalar numa pasta com acento, o motor roda de uma cópia em `C:\ProgramData\RadioOnAir\liquidsoap` (scripts e registros também ficam em `C:\ProgramData\RadioOnAir`), e músicas/pastas com acento vão para ele pelo **nome curto** do Windows (8.3, sem acento), traduzido de volta para a tela.
 - O aviso vermelho mostra a mensagem real do motor quando ele não abre.
 - Testado: instala e abre; motor falhava com usuário com acento (corrigido, aguardando novo teste).

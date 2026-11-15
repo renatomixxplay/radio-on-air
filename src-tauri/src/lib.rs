@@ -592,7 +592,7 @@ fn iniciar_captura(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     let (app, estado) = (app.clone(), estado.clone());
     // Em segundo plano: no Mac, achar a placa leva um segundo.
     std::thread::spawn(move || {
-        let log = sistema::pasta_motor(&dir).join("captura.log").to_string_lossy().into_owned();
+        let log = dir.join("captura.log").to_string_lossy().into_owned();
         let script = captura::script(&log, &audio, &g, &t, &nome);
         let (app2, estado2) = (app.clone(), estado.clone());
         let resultado = captura::Captura::iniciar(&exe, &dir, script, move |ev| ao_evento_captura(&app2, &estado2, geracao, ev));
@@ -1450,7 +1450,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let dir = app.path().app_data_dir().expect("pasta de dados");
+            let dir = sistema::pasta_dados(app.path().app_data_dir().expect("pasta de dados"));
             // No Windows o Liquidsoap vem dentro do instalador.
             if let Ok(recursos) = app.path().resource_dir() {
                 motor::usar_embutido(&recursos);
@@ -1540,6 +1540,18 @@ pub fn run() {
             gravacao_definir,
             transmissao_definir,
         ])
-        .run(tauri::generate_context!())
-        .expect("erro ao abrir o Radio On Air");
+        .build(tauri::generate_context!())
+        .expect("erro ao abrir o Radio On Air")
+        .run(|app, evento| {
+            // Fechou o programa: fecha junto o motor e a gravação/transmissão.
+            if let tauri::RunEvent::Exit = evento {
+                let estado = app.state::<Compartilhado>();
+                let mut e = travar(&estado);
+                // Avisos dos processos antigos passam a ser ignorados.
+                e.geracao_motor += 1;
+                e.geracao_captura += 1;
+                e.motor = None;
+                e.captura = None;
+            }
+        });
 }

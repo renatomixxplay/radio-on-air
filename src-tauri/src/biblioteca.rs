@@ -138,16 +138,17 @@ impl Biblioteca {
         self.faixas.choose(&mut rand::rng()).map(|f| self.dto(f))
     }
 
-    /// Música aleatória de uma pasta do acervo (e subpastas).
-    /// Se a pasta não estiver dentro do acervo ou estiver vazia, devolve `None`.
+    /// Música aleatória de uma pasta (e subpastas). Dentro do acervo, sai do
+    /// índice; fora dele, lê a pasta no disco. Pasta vazia: `None`.
     pub fn aleatoria_em(&self, pasta: &Path) -> Option<FaixaDto> {
-        let raiz = self.raiz.as_ref()?;
-        let rel = pasta.strip_prefix(raiz).ok()?.to_str()?;
-        if rel.is_empty() {
+        let Some(rel) = self.raiz.as_ref().and_then(|r| pasta.strip_prefix(r).ok()) else {
+            return aleatoria_no_disco(pasta);
+        };
+        if rel.as_os_str().is_empty() {
             return self.aleatoria();
         }
-        let prefixo = format!("{rel}/");
-        let dentro: Vec<&Faixa> = self.faixas.iter().filter(|f| f.rel.starts_with(&prefixo)).collect();
+        // Compara por partes do caminho: no Windows a barra é "\", não "/".
+        let dentro: Vec<&Faixa> = self.faixas.iter().filter(|f| Path::new(&f.rel).starts_with(rel)).collect();
         dentro.choose(&mut rand::rng()).map(|f| self.dto(f))
     }
 
@@ -171,9 +172,8 @@ impl Biblioteca {
             return;
         }
         // Remove o que havia nesse caminho (o próprio arquivo ou tudo dentro da pasta).
-        let prefixo = format!("{rel}/");
         let antes = self.faixas.len();
-        self.faixas.retain(|f| f.rel != rel && !f.rel.starts_with(&prefixo));
+        self.faixas.retain(|f| !Path::new(&f.rel).starts_with(&rel));
         let mut mudou = self.faixas.len() != antes;
 
         // Adiciona de novo o que existe agora.
@@ -196,6 +196,20 @@ impl Biblioteca {
             self.sujo = true;
         }
     }
+}
+
+/// Música aleatória de uma pasta fora do acervo, lida direto do disco.
+fn aleatoria_no_disco(pasta: &Path) -> Option<FaixaDto> {
+    let arquivos: Vec<PathBuf> = WalkDir::new(pasta)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file() && eh_audio(e.path()))
+        .map(|e| e.into_path())
+        .collect();
+    let p = arquivos.choose(&mut rand::rng())?;
+    let (artista, musica) = artista_e_musica(p);
+    Some(FaixaDto { caminho: p.to_string_lossy().into_owned(), artista, musica })
 }
 
 #[cfg(test)]
@@ -231,5 +245,27 @@ mod testes {
         // Compara como caminho: no Windows a junção usa "\\" ("/m\\B/Maria - Rio.mp3").
         assert_eq!(PathBuf::from(&b.buscar("maria rio", 10)[0].caminho), Path::new("/m").join("B/Maria - Rio.mp3"));
         assert_eq!(b.buscar("xyz", 10).len(), 0);
+    }
+
+    /// Agendamento de lista: só sai música de dentro da pasta escolhida,
+    /// com a barra do sistema (no Windows o índice guarda "Gauchas\\x.mp3").
+    #[test]
+    fn sorteia_so_dentro_da_pasta() {
+        let raiz = PathBuf::from("/m");
+        let gauchas = Path::new("Gauchas").join("Renato - Fogo.mp3");
+        let b = Biblioteca {
+            raiz: Some(raiz.clone()),
+            faixas: vec![
+                Faixa::nova(gauchas.to_string_lossy().into_owned()),
+                Faixa::nova(Path::new("Gauchas2").join("X - Y.mp3").to_string_lossy().into_owned()),
+                Faixa::nova(Path::new("Sertanejo").join("A - B.mp3").to_string_lossy().into_owned()),
+            ],
+            sujo: false,
+        };
+        for _ in 0..20 {
+            let f = b.aleatoria_em(&raiz.join("Gauchas")).unwrap();
+            assert_eq!(PathBuf::from(f.caminho), raiz.join(&gauchas));
+        }
+        assert!(b.aleatoria_em(&raiz.join("Vazia")).is_none());
     }
 }
