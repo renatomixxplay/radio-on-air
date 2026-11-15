@@ -37,27 +37,20 @@
 
 <section class="painel tocando" class:ativo={noAr && item}>
   <div class="rotulo">
-    <span class="ponto" class:on={noAr && item && !pausado}><Icone nome="play" tamanho={14} /></span>
-    Tocando agora
-    {#if pausado}<span class="pausado">pausado</span>{/if}
-    <span class="avisos">
-      {#if !aguardando && !porCima && proximo}
-        <span class="aviso-ag contorno apagado" title="Próximo agendamento">
-          <Icone nome={proximo.tipo === "hora_certa" ? "relogio" : proximo.tipo === "ducking" ? "ducking" : "megafone"} tamanho={14} />
-          <span class="mono">{proximo.horario}</span><span class="texto">{proximo.nome}</span>
-        </span>
-      {/if}
-      {#if aguardando}
-        <span class="aviso-ag contorno" title="Entra quando esta música acabar">
-          <Icone nome="megafone" tamanho={14} /><span class="texto">depois desta: {aguardando}</span>
-        </span>
-      {/if}
+    <!-- No lugar do título: o agendamento atual ou o próximo. -->
+    <span class="agenda" class:vazio-ag={!porCima && !aguardando && !proximo} class:agora={porCima || aguardando}>
+      <Icone nome="calendar" tamanho={15} />
       {#if porCima}
-        <span class="aviso-ag" title="Comercial tocando por cima da música">
-          <Icone nome="ducking" tamanho={14} /><span class="texto">{porCima}</span>
-        </span>
+        <span class="texto" title={porCima}>Por cima: {porCima}</span>
+      {:else if aguardando}
+        <span class="texto" title={aguardando}>Depois desta: {aguardando}</span>
+      {:else if proximo}
+        <span class="texto" title={proximo.nome}>Próximo: <span class="mono">{proximo.horario}</span> {proximo.nome}</span>
+      {:else}
+        <span class="texto">Nenhum agendamento</span>
       {/if}
     </span>
+    {#if pausado}<span class="pausado">pausado</span>{/if}
   </div>
 
   <div class="corpo">
@@ -111,13 +104,6 @@
   .tocando.ativo {
     border-color: var(--verde-borda);
   }
-  .ponto {
-    display: inline-flex;
-    color: var(--texto-3);
-  }
-  .ponto.on {
-    color: var(--verde);
-  }
   .pausado {
     margin-left: auto;
     font-size: 13px;
@@ -126,39 +112,32 @@
     background: var(--laranja-bg);
     color: var(--laranja);
   }
-  .avisos {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-  }
-  /* Tamanho fixo: nome comprido vira "…" em vez de esticar o aviso. */
-  .aviso-ag {
+  .agenda {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    width: 300px;
+    gap: 7px;
+    min-width: 0;
+    max-width: 75%;
     height: 28px;
-    font-size: 13px;
-    line-height: 1;
     padding: 0 10px;
     border-radius: 6px;
-    background: var(--tag-comercial-bg);
+    font-size: 14px;
     color: var(--tag-comercial);
-    border: 0.5px solid transparent;
+    background: rgba(255, 216, 102, 0.08);
   }
-  .aviso-ag .texto {
-    flex: 1;
+  .agenda.agora {
+    background: rgba(255, 216, 102, 0.16);
+  }
+  .agenda.vazio-ag {
+    color: var(--texto-3);
+    background: transparent;
+    padding-left: 0;
+  }
+  .agenda .texto {
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-  }
-  .aviso-ag.contorno {
-    background: transparent;
-    border-color: var(--tag-comercial);
-  }
-  .aviso-ag.apagado {
-    opacity: 0.75;
   }
   .corpo {
     flex: 1;
