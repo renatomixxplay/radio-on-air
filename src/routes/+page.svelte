@@ -22,7 +22,7 @@
     api.estado().then(receber);
     const parar = api.aoMudar(receber);
     // Só o relógio e o tempo da faixa mudam sozinhos; o resto vem do programa.
-    const t = setInterval(() => (agora = new Date()), 250);
+    const t = setInterval(() => (agora = new Date()), 500);
     return () => {
       clearInterval(t);
       parar.then((f) => f());

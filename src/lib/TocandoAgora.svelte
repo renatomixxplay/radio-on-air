@@ -31,13 +31,14 @@
       <div class="artista">&nbsp;</div>
     {/if}
 
-    <div class="onda" aria-hidden="true">
-      {#each barras as v, i}
-        <span
-          style:height="{Math.max(6, v)}%"
-          class:passou={item && i / barras.length < progresso}
-        ></span>
-      {/each}
+    <!-- Duas camadas fixas; só o recorte da verde muda (não redesenha as barras). -->
+    <div class="onda-caixa" aria-hidden="true">
+      <div class="onda">
+        {#each barras as v}<span style:height="{Math.max(6, v)}%"></span>{/each}
+      </div>
+      <div class="onda passou" style:clip-path="inset(0 {100 - progresso * 100}% 0 0)">
+        {#each barras as v}<span style:height="{Math.max(6, v)}%"></span>{/each}
+      </div>
     </div>
 
     <div class="tempos mono">
@@ -94,19 +95,24 @@
     font-size: 14px;
     margin: 2px 0 10px;
   }
+  .onda-caixa {
+    position: relative;
+    height: 48px;
+    margin-bottom: 6px;
+  }
   .onda {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     gap: 2px;
-    height: 48px;
-    margin-bottom: 6px;
   }
   .onda span {
     flex: 1;
     border-radius: 1px;
     background: #3a3f4a;
   }
-  .onda span.passou {
+  .onda.passou span {
     background: var(--verde);
   }
   .tempos {
