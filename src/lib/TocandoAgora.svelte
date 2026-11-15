@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, tempo, type Item } from "./api";
+  import { api, tempo, type Item, type Retrato } from "./api";
   import Icone from "./Icone.svelte";
 
   let {
@@ -12,6 +12,7 @@
     porCima,
     aguardando,
     repetirAuto,
+    proximo,
   }: {
     item: Item | null;
     decorrido: number;
@@ -22,11 +23,14 @@
     porCima: string | null;
     aguardando: string | null;
     repetirAuto: boolean;
+    proximo: Retrato["proximo_agendamento"];
   } = $props();
 
   const duracao = $derived(item?.duracao ?? null);
   const progresso = $derived(duracao ? Math.min(1, decorrido / duracao) : 0);
   const falta = $derived(duracao != null ? duracao - decorrido : null);
+  /** Comercial e hora certa não podem ser pulados. */
+  const agendado = $derived(item?.tipo === "comercial" || item?.tipo === "hora_certa");
   /** Últimos 10 segundos: a barra fica vermelha. */
   const acabando = $derived(item != null && falta != null && falta <= 10);
 </script>
@@ -37,6 +41,12 @@
     Tocando agora
     {#if pausado}<span class="pausado">pausado</span>{/if}
     <span class="avisos">
+      {#if !aguardando && !porCima && proximo}
+        <span class="aviso-ag contorno apagado" title="Próximo agendamento">
+          <Icone nome={proximo.tipo === "hora_certa" ? "relogio" : proximo.tipo === "ducking" ? "ducking" : "megafone"} tamanho={14} />
+          <span class="mono">{proximo.horario}</span>{proximo.nome}
+        </span>
+      {/if}
       {#if aguardando}
         <span class="aviso-ag contorno" title="Entra quando esta música acabar">
           <Icone nome="megafone" tamanho={14} />depois desta: {aguardando}
@@ -85,7 +95,12 @@
       >
         <Icone nome="repetir" tamanho={20} />
       </button>
-      <button onclick={api.proxima} title="Passar para a próxima" aria-label="Passar" disabled={!noAr}>
+      <button
+        onclick={api.proxima}
+        title={agendado ? "Agendamento não pode ser pulado" : "Passar para a próxima"}
+        aria-label="Passar"
+        disabled={!noAr || agendado}
+      >
         <Icone nome="skip" tamanho={20} />
       </button>
     </div>
@@ -135,6 +150,9 @@
   .aviso-ag.contorno {
     background: transparent;
     border: 0.5px solid var(--tag-comercial);
+  }
+  .aviso-ag.apagado {
+    opacity: 0.75;
   }
   .corpo {
     flex: 1;

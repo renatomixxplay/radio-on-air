@@ -56,14 +56,6 @@
       <button class:on={aba === "config"} onclick={() => (aba = "config")}>Configurações</button>
     </nav>
     <div class="direita">
-      {#if r?.proximo_agendamento}
-        {@const p = r.proximo_agendamento}
-        <span class="proximo" title="Próximo agendamento">
-          <Icone nome={p.tipo === "hora_certa" ? "relogio" : p.tipo === "ducking" ? "ducking" : "megafone"} tamanho={15} />
-          <span class="mono">{p.horario}</span>
-          <span class="reticencias">{p.nome}</span>
-        </span>
-      {/if}
       {#if r?.iniciando_motor}
         <span class="ligando">ligando o áudio…</span>
       {/if}
@@ -94,6 +86,7 @@
           ducking={r.ducking}
           porCima={r.por_cima}
           aguardando={r.aguardando}
+          proximo={r.proximo_agendamento}
           repetirAuto={r.repetir_auto}
         />
         <Cartucheira slots={r.cartucheira} />
@@ -174,17 +167,6 @@
     padding: 3px 9px;
     border-radius: 4px;
     letter-spacing: 0.04em;
-  }
-  .proximo {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 320px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    background: var(--tag-comercial-bg);
-    color: var(--tag-comercial);
-    font-size: 13px;
   }
   .ligando {
     font-size: 13px;

@@ -811,6 +811,10 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
     if !e.no_ar {
         return;
     }
+    // Agendamento não se pula: comercial e hora certa tocam até o fim.
+    if e.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta)) {
+        return;
+    }
     completar_fila(&app, &compartilhado, &mut e);
     // Tira do motor o que já tinha sido entregue (inclusive uma repetição);
     // o motor fica sem nada e o evento de silêncio entrega a próxima da fila.
