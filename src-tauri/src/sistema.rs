@@ -197,7 +197,9 @@ mod testes {
         let curto = para_motor(&original);
         if curto != original {
             assert!(curto.is_ascii(), "{curto}");
-            assert_eq!(do_motor(&curto).to_lowercase(), original.to_lowercase());
+            // Compara os dois em forma longa: a própria pasta temporária pode
+            // vir com nome curto (ex.: C:\\Users\\RUNNER~1\\...).
+            assert_eq!(do_motor(&curto).to_lowercase(), do_motor(&original).to_lowercase());
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
