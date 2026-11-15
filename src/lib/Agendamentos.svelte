@@ -89,7 +89,7 @@
   <div class="coluna">
   <div class="cabeca">
     <h3 class="grupo">Agendamentos</h3>
-    <button class="botao" onclick={novo}><Icone nome="plus" tamanho={16} /> Novo agendamento</button>
+    <button class="botao" onclick={novo}><Icone nome="plus" tamanho={16} /> Novo</button>
   </div>
   <div class="filtro">
       <button class="chip" class:on={filtro < 0} onclick={() => (filtro = -1)}>Todos</button>
