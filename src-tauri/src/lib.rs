@@ -185,6 +185,7 @@ struct Retrato {
     /// Pastas do painel "Pastas", em ordem alfabética.
     pastas: Vec<Pasta>,
     tocar_ao_abrir: bool,
+    abrir_tela_cheia: bool,
     vinheta_entre_musicas: bool,
     /// Tem senha definida.
     protegido: bool,
@@ -239,6 +240,7 @@ impl Estado {
                 v
             },
             tocar_ao_abrir: self.config.tocar_ao_abrir,
+            abrir_tela_cheia: self.config.abrir_tela_cheia,
             vinheta_entre_musicas: self.config.vinheta_entre_musicas,
             protegido: self.config.senha_hash.is_some(),
             bloqueios: self.config.bloqueios.clone(),
@@ -420,8 +422,11 @@ fn analisar_em_segundo_plano(app: &AppHandle, estado: &Compartilhado, id: u64, c
 /// Mantém o mínimo da fila puxando músicas aleatórias do acervo.
 fn completar_fila(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     while e.fila.len() <= FILA_MINIMO && e.fila.len() < FILA_MAXIMO {
-        let da_lista = e.lista_ativa.as_ref().and_then(|p| e.bib.aleatoria_em(Path::new(p)));
-        let Some(f) = da_lista.or_else(|| e.bib.aleatoria()) else { break };
+        // Baralho da pasta da lista (sem repetir até tocar todas); pasta vazia
+        // ou sem lista: baralho do acervo todo.
+        let lista = e.lista_ativa.clone();
+        let da_lista = lista.and_then(|p| e.bib.proxima_em(Some(Path::new(&p))));
+        let Some(f) = da_lista.or_else(|| e.bib.proxima_em(None)) else { break };
         let item = e.novo_item(f.caminho, f.artista, f.musica, Tipo::Musica);
         analisar_em_segundo_plano(app, estado, item.id, item.caminho.clone());
         e.fila.push(item);
@@ -493,16 +498,30 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
             // Falhou ao iniciar: a mensagem já foi dada por quem tentou ligar.
         }
         EventoMotor::Parou(erro) => {
+            // O motor caiu. Se a rádio estava no ar, continua no ar: o motor é
+            // religado em 3 s e segue com a PRÓXIMA da fila (a que tocava não
+            // volta: se foi ela que derrubou o motor, cairia de novo).
+            if e.pausado {
+                e.no_ar = false;
+                e.pausado = false;
+                e.saida_parada = false;
+            }
+            e.geracao_motor += 1;
             e.motor = None;
             e.previa = None;
             e.por_cima = None;
             e.ducking = false;
-            e.no_ar = false;
             e.tocando = None;
-            e.link = None;
+            e.repeticao_enviada = false;
+            e.repetir_auto = false;
             e.destravar_tudo();
+            if let Some(l) = e.link.as_mut() {
+                l.ligado = false;
+            }
             let erro = erro.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
-            e.erro_motor = Some(if erro.is_empty() { "O motor de áudio parou.".into() } else { erro });
+            let erro = if erro.is_empty() { "O motor de áudio parou".into() } else { erro };
+            e.erro_motor = Some(format!("{erro} (religando…)"));
+            religar_motor_depois(app, estado, e.geracao_motor, Duration::from_secs(3));
         }
     }
     emitir(app, &e);
@@ -543,12 +562,28 @@ fn iniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
                     e.ligar_link_se_pronto();
                 }
             }
-            Err(err) => {
-                e.no_ar = false;
-                e.erro_motor = Some(err);
+            // Rádio no ar e o motor não liga (ex.: placa USB desconectada):
+            // continua tentando a cada 10 s, sem tirar do ar.
+            Err(err) if e.no_ar => {
+                e.erro_motor = Some(format!("{err} (tentando de novo…)"));
+                religar_motor_depois(&app, &estado, geracao, Duration::from_secs(10));
             }
+            Err(err) => e.erro_motor = Some(err),
         }
         emitir(&app, &e);
+    });
+}
+
+/// Religa o motor depois de um tempo, se ninguém o religou nesse meio tempo
+/// (por exemplo, trocando a placa de som).
+fn religar_motor_depois(app: &AppHandle, estado: &Compartilhado, geracao: u64, espera: Duration) {
+    let (app, estado) = (app.clone(), estado.clone());
+    std::thread::spawn(move || {
+        std::thread::sleep(espera);
+        let mut e = travar(&estado);
+        if geracao == e.geracao_motor && e.motor.is_none() {
+            iniciar_motor(&app, &estado, &mut e);
+        }
     });
 }
 
@@ -1093,6 +1128,28 @@ fn definir_vinheta_entre_musicas(app: AppHandle, estado: State<Compartilhado>, v
 }
 
 #[tauri::command]
+fn definir_abrir_tela_cheia(app: AppHandle, estado: State<Compartilhado>, valor: bool) -> Result<(), String> {
+    let mut e = travar(&estado);
+    e.config.abrir_tela_cheia = valor;
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
+/// Botão do topo e tecla F11: entra ou sai da tela cheia. Devolve como ficou.
+#[tauri::command]
+fn alternar_tela_cheia(janela: tauri::WebviewWindow) -> bool {
+    let nova = !janela.is_fullscreen().unwrap_or(false);
+    let _ = janela.set_fullscreen(nova);
+    nova
+}
+
+#[tauri::command]
+fn tela_cheia_agora(janela: tauri::WebviewWindow) -> bool {
+    janela.is_fullscreen().unwrap_or(false)
+}
+
+#[tauri::command]
 fn definir_tocar_ao_abrir(app: AppHandle, estado: State<Compartilhado>, valor: bool) -> Result<(), String> {
     let mut e = travar(&estado);
     e.config.tocar_ao_abrir = valor;
@@ -1459,6 +1516,11 @@ pub fn run() {
             let agenda = agenda::carregar(&dir);
             let rodizio = Rodizio::carregar(&dir);
             let lista_ativa = agenda::lista_vigente(&agenda);
+            if config.abrir_tela_cheia {
+                if let Some(janela) = app.get_webview_window("main") {
+                    let _ = janela.set_fullscreen(true);
+                }
+            }
             let estado: Compartilhado = Arc::new(Mutex::new(Estado {
                 dir,
                 config: config.clone(),
@@ -1527,6 +1589,9 @@ pub fn run() {
             pasta_adicionar,
             pasta_remover,
             definir_tocar_ao_abrir,
+            definir_abrir_tela_cheia,
+            alternar_tela_cheia,
+            tela_cheia_agora,
             senha_conferir,
             senha_definir,
             bloqueios_definir,

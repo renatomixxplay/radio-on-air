@@ -56,8 +56,11 @@
 
 <section class="painel">
   <div class="rotulo">
-    <Icone nome="list" tamanho={14} />Fila
-    {#if lista}<span class="lista-ativa" title="Lista de músicas valendo agora"><Icone nome="music" tamanho={13} />{lista}</span>{/if}
+    <Icone nome="list" tamanho={14} />
+    <!-- Tudo numa linha de texto só: o "Playlist", menor, fica na mesma base do "Fila". -->
+    <span class="titulo reticencias"
+      >Fila{#if lista}<span class="ponto">·</span><span class="lista-ativa" title="Lista de músicas valendo agora">Playlist {lista}</span>{/if}</span
+    >
     <span class="info mono">{fila.length}/10 · {tempo(total)}</span>
   </div>
   <div
@@ -108,11 +111,13 @@
 </section>
 
 <style>
+  .titulo {
+    min-width: 0;
+  }
+  .ponto {
+    margin: 0 6px;
+  }
   .lista-ativa {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-left: 6px;
     color: var(--tag-musica);
     font-size: 13px;
   }

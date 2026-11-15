@@ -35,6 +35,7 @@
   let filtro = $state(-1); // -1 = todos os dias
   let edicao = $state<Agendamento | null>(null);
   let erro = $state("");
+  let erroLista = $state("");
   let arrastando = $state<number | null>(null);
 
   const visiveis = $derived(filtro < 0 ? lista : lista.filter((a) => a.dias[filtro]));
@@ -76,7 +77,7 @@
 
   function novo() {
     erro = "";
-    edicao = { id: 0, horario: "08:00", dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null };
+    edicao = { id: 0, horario: "08:00", dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null, ativo: true };
   }
 
   async function anexar() {
@@ -107,6 +108,17 @@
     }
   }
 
+  /** Chave da lista: ativa ou desativa sem abrir o agendamento. */
+  async function alternarAtivo(a: Agendamento) {
+    try {
+      lista = await api.agendamentoSalvar({ ...($state.snapshot(a) as Agendamento), ativo: !a.ativo });
+      erroLista = "";
+      if (edicao?.id === a.id) edicao.ativo = !a.ativo;
+    } catch (e) {
+      erroLista = String(e);
+    }
+  }
+
   async function remover() {
     if (!edicao || edicao.id === 0) return (edicao = null);
     lista = await api.agendamentoRemover(edicao.id);
@@ -133,17 +145,23 @@
         <button class="chip" class:on={filtro === i} onclick={() => (filtro = i)}>{d}</button>
       {/each}
   </div>
+  {#if erroLista}<div class="erro">{erroLista}</div>{/if}
   <div class="lista cartoes">
       {#each visiveis as a (a.id)}
         {@const t = tipoInfo(a.tipo)}
-        <button class="painel linha ag" class:sel={edicao?.id === a.id} onclick={() => editar(a)}>
-          <span class="hora">{a.tipo === "hora_certa" ? `${a.intervalo ?? "–"} min` : a.horario}</span>
-          <span class="tag etiqueta {a.tipo}" title={t.nome}><Icone nome={t.icone} tamanho={18} /></span>
-          <span class="reticencias pastas">{nomesDe(a)}</span>
-          <span class="dias">
-            {#each DIAS as d, i}<span class="d" class:on={a.dias[i]}>{d}</span>{/each}
-          </span>
-        </button>
+        <div class="ag-item">
+          <button class="painel linha ag" class:sel={edicao?.id === a.id} class:desativado={!a.ativo} onclick={() => editar(a)}>
+            <span class="hora">{a.tipo === "hora_certa" ? `${a.intervalo ?? "–"} min` : a.horario}</span>
+            <span class="tag etiqueta {a.tipo}" title={t.nome}><Icone nome={t.icone} tamanho={18} /></span>
+            <span class="reticencias pastas">{nomesDe(a)}</span>
+            <span class="dias">
+              {#each DIAS as d, i}<span class="d" class:on={a.dias[i]}>{d}</span>{/each}
+            </span>
+          </button>
+          <button class="chave" class:on={a.ativo} onclick={() => alternarAtivo(a)} title={a.ativo ? "Ativado (clique para desativar)" : "Desativado (clique para ativar)"} aria-label="Ativar ou desativar">
+            <span></span>
+          </button>
+        </div>
       {:else}
         <div class="painel vazio">Nenhum agendamento {filtro >= 0 ? "neste dia" : "ainda"}.</div>
       {/each}
@@ -353,6 +371,14 @@
     text-align: left;
     display: grid;
     grid-template-columns: 56px 34px minmax(0, 1fr) auto;
+  }
+  .ag-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .ag.desativado {
+    opacity: 0.45;
   }
   .ag:hover {
     background: var(--painel-2);

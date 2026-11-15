@@ -76,6 +76,13 @@ pub struct Agendamento {
     /// Link: endereço do áudio ao vivo (MP3/AAC).
     #[serde(default)]
     pub url: Option<String>,
+    /// Desativado: fica na lista mas não toca (nem conta como horário ocupado).
+    #[serde(default = "ativo_padrao")]
+    pub ativo: bool,
+}
+
+fn ativo_padrao() -> bool {
+    true
 }
 
 /// Intervalos da hora certa: a cada 30 min ou só na hora cheia.
@@ -89,7 +96,7 @@ impl Agendamento {
     }
 
     fn vale_no_dia(&self, dia_semana: usize) -> bool {
-        self.dias.get(dia_semana).copied().unwrap_or(false)
+        self.ativo && self.dias.get(dia_semana).copied().unwrap_or(false)
     }
 
     /// Minutos do dia (0 = 00:00) em que dispara.
@@ -151,7 +158,11 @@ const DIAS_NOME: [&str; 7] = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 /// Dois agendamentos não podem ter o mesmo horário num mesmo dia. A hora certa
 /// é uma só e pode cair junto com qualquer outro.
 pub fn conflito(v: &[Agendamento], ag: &Agendamento) -> Option<String> {
-    let outros = v.iter().filter(|o| o.id != ag.id);
+    // Desativado não ocupa horário; ao ativar de novo, confere.
+    if !ag.ativo {
+        return None;
+    }
+    let outros = v.iter().filter(|o| o.id != ag.id && o.ativo);
     if ag.tipo == TipoAgenda::HoraCerta {
         return outros
             .clone()
@@ -519,7 +530,22 @@ mod testes {
     }
 
     fn ag(id: u64, horario: &str, dias: [bool; 7], tipo: TipoAgenda) -> Agendamento {
-        Agendamento { id, horario: horario.into(), dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None }
+        Agendamento { id, horario: horario.into(), dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None, ativo: true }
+    }
+
+    /// Desativado: não toca e não ocupa o horário; ativar de novo confere conflito.
+    #[test]
+    fn desativado_nao_toca_nem_ocupa_horario() {
+        let hoje = chrono::NaiveDate::from_ymd_opt(2026, 11, 16).unwrap(); // segunda
+        let mut a = ag(1, "08:00", [true; 7], TipoAgenda::Comercial);
+        a.ativo = false;
+        let v = vec![a.clone()];
+        assert!(do_minuto(&v, hoje, 8, 0).is_empty());
+        let b = ag(2, "08:00", [true; 7], TipoAgenda::Comercial);
+        assert!(conflito(&v, &b).is_none());
+        let v = vec![a.clone(), b];
+        a.ativo = true;
+        assert!(conflito(&v, &a).is_some());
     }
 
     #[test]

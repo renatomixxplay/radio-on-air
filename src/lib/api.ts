@@ -23,6 +23,7 @@ export interface Retrato {
   pasta_musicas: string | null;
   pastas: Pasta[];
   tocar_ao_abrir: boolean;
+  abrir_tela_cheia: boolean;
   vinheta_entre_musicas: boolean;
   protegido: boolean;
   bloqueios: Bloqueios;
@@ -109,6 +110,8 @@ export interface Agendamento {
   intervalo?: number | null;
   /** Lista: espera a música atual acabar ou faz fade e já entra. */
   modo_lista?: "depois_desta" | "fade";
+  /** Desativado: fica na lista mas não toca. */
+  ativo: boolean;
   /** Link: endereço do áudio ao vivo (MP3/AAC). */
   url?: string | null;
 }
@@ -164,6 +167,9 @@ export const api = {
   pastaAdicionar: (caminho: string) => invoke<void>("pasta_adicionar", { caminho }),
   pastaRemover: (caminho: string) => invoke<void>("pasta_remover", { caminho }),
   definirTocarAoAbrir: (valor: boolean) => invoke<void>("definir_tocar_ao_abrir", { valor }),
+  definirAbrirTelaCheia: (valor: boolean) => invoke<void>("definir_abrir_tela_cheia", { valor }),
+  alternarTelaCheia: () => invoke<boolean>("alternar_tela_cheia"),
+  telaCheiaAgora: () => invoke<boolean>("tela_cheia_agora"),
   definirVinhetaEntreMusicas: (valor: boolean) => invoke<void>("definir_vinheta_entre_musicas", { valor }),
   nomeRadioDefinir: (nome: string) => invoke<void>("nome_radio_definir", { nome }),
   placas: () => invoke<Placas>("placas"),

@@ -2,8 +2,9 @@
 //! guarda a lista em `indice.txt` e faz a busca em memória.
 
 use deunicode::deunicode;
-use rand::seq::IndexedRandom;
+use rand::seq::SliceRandom;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -59,9 +60,24 @@ pub struct FaixaDto {
 #[derive(Default)]
 pub struct Biblioteca {
     pub raiz: Option<PathBuf>,
+    /// Sempre em ordem de `rel` (a busca por nome usa isso).
     faixas: Vec<Faixa>,
     /// Há mudanças ainda não gravadas no `indice.txt`.
     pub sujo: bool,
+    /// Um baralho por pasta (são poucas: as das listas e o acervo todo).
+    baralhos: HashMap<PathBuf, Baralho>,
+}
+
+/// "Baralho" da pasta que está tocando: a pasta é embaralhada e as músicas saem
+/// na ordem do baralho; só quando acabar todas é embaralhada de novo. Assim
+/// nenhuma música repete antes de todas as outras da pasta tocarem.
+/// Fica só na memória: ao abrir o programa, embaralha de novo.
+#[derive(Default)]
+struct Baralho {
+    /// Cartas que ainda vão sair (a próxima é a última do vetor).
+    cartas: Vec<PathBuf>,
+    /// Última que saiu: não abre a rodada seguinte.
+    ultima: Option<PathBuf>,
 }
 
 impl Biblioteca {
@@ -82,7 +98,9 @@ impl Biblioteca {
             .filter(|l| !l.is_empty())
             .map(Faixa::nova)
             .collect();
-        Some(Self { raiz: Some(raiz), faixas, sujo: false })
+        let mut faixas: Vec<Faixa> = faixas;
+        faixas.sort_by(|a, b| a.rel.cmp(&b.rel));
+        Some(Self { raiz: Some(raiz), faixas, sujo: false, baralhos: HashMap::new() })
     }
 
     /// Varre a pasta inteira (usado na primeira vez e no botão "Atualizar músicas").
@@ -101,7 +119,7 @@ impl Biblioteca {
             })
             .collect();
         faixas.sort_by(|a, b| a.rel.cmp(&b.rel));
-        Self { raiz: Some(raiz), faixas, sujo: true }
+        Self { raiz: Some(raiz), faixas, sujo: true, baralhos: HashMap::new() }
     }
 
     pub fn salvar_indice(&mut self, arquivo: &Path) -> std::io::Result<()> {
@@ -134,22 +152,65 @@ impl Biblioteca {
             .collect()
     }
 
-    pub fn aleatoria(&self) -> Option<FaixaDto> {
-        self.faixas.choose(&mut rand::rng()).map(|f| self.dto(f))
+    /// Próxima música do baralho de uma pasta (com subpastas); `None` = acervo
+    /// todo. Pasta fora do acervo é lida no disco. Pasta vazia: `None`.
+    pub fn proxima_em(&mut self, pasta: Option<&Path>) -> Option<FaixaDto> {
+        let pasta = pasta.map(Path::to_path_buf).or_else(|| self.raiz.clone())?;
+        let mut baralho = self.baralhos.remove(&pasta).unwrap_or_default();
+        let carta = self.tirar(&pasta, &mut baralho);
+        self.baralhos.insert(pasta, baralho);
+        let carta = carta?;
+        let (artista, musica) = artista_e_musica(&carta);
+        Some(FaixaDto { caminho: carta.to_string_lossy().into_owned(), artista, musica })
     }
 
-    /// Música aleatória de uma pasta (e subpastas). Dentro do acervo, sai do
-    /// índice; fora dele, lê a pasta no disco. Pasta vazia: `None`.
-    pub fn aleatoria_em(&self, pasta: &Path) -> Option<FaixaDto> {
-        let Some(rel) = self.raiz.as_ref().and_then(|r| pasta.strip_prefix(r).ok()) else {
-            return aleatoria_no_disco(pasta);
-        };
-        if rel.as_os_str().is_empty() {
-            return self.aleatoria();
+    fn tirar(&self, pasta: &Path, baralho: &mut Baralho) -> Option<PathBuf> {
+        let mut embaralhou = false;
+        loop {
+            match baralho.cartas.pop() {
+                // Pula o que saiu da pasta (apagado ou renomeado) desde que embaralhou.
+                Some(carta) if self.ainda_existe(&carta) => {
+                    baralho.ultima = Some(carta.clone());
+                    return Some(carta);
+                }
+                Some(_) => {}
+                None if embaralhou => return None,
+                None => {
+                    embaralhou = true;
+                    let mut cartas = self.cartas_da_pasta(pasta);
+                    cartas.shuffle(&mut rand::rng());
+                    // A última da rodada anterior não abre a nova (sairia duas seguidas).
+                    if cartas.len() > 1 && cartas.last() == baralho.ultima.as_ref() {
+                        let fim = cartas.len() - 1;
+                        cartas.swap(0, fim);
+                    }
+                    baralho.cartas = cartas;
+                }
+            }
         }
+    }
+
+    /// Todas as músicas de uma pasta: do índice, se estiver no acervo; senão, do disco.
+    fn cartas_da_pasta(&self, pasta: &Path) -> Vec<PathBuf> {
+        let Some(raiz) = self.raiz.as_ref().filter(|r| pasta.starts_with(r)) else {
+            return WalkDir::new(pasta)
+                .follow_links(true)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_type().is_file() && eh_audio(e.path()))
+                .map(|e| e.into_path())
+                .collect();
+        };
+        let rel = pasta.strip_prefix(raiz).unwrap_or(Path::new(""));
         // Compara por partes do caminho: no Windows a barra é "\", não "/".
-        let dentro: Vec<&Faixa> = self.faixas.iter().filter(|f| Path::new(&f.rel).starts_with(rel)).collect();
-        dentro.choose(&mut rand::rng()).map(|f| self.dto(f))
+        self.faixas.iter().filter(|f| Path::new(&f.rel).starts_with(rel)).map(|f| raiz.join(&f.rel)).collect()
+    }
+
+    fn ainda_existe(&self, carta: &Path) -> bool {
+        match self.raiz.as_ref().and_then(|r| carta.strip_prefix(r).ok()).and_then(|r| r.to_str()) {
+            Some(rel) => self.faixas.binary_search_by(|f| f.rel.as_str().cmp(rel)).is_ok(),
+            None => carta.is_file(),
+        }
     }
 
     fn dto(&self, f: &Faixa) -> FaixaDto {
@@ -198,20 +259,6 @@ impl Biblioteca {
     }
 }
 
-/// Música aleatória de uma pasta fora do acervo, lida direto do disco.
-fn aleatoria_no_disco(pasta: &Path) -> Option<FaixaDto> {
-    let arquivos: Vec<PathBuf> = WalkDir::new(pasta)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file() && eh_audio(e.path()))
-        .map(|e| e.into_path())
-        .collect();
-    let p = arquivos.choose(&mut rand::rng())?;
-    let (artista, musica) = artista_e_musica(p);
-    Some(FaixaDto { caminho: p.to_string_lossy().into_owned(), artista, musica })
-}
-
 #[cfg(test)]
 mod testes {
     use super::*;
@@ -239,6 +286,7 @@ mod testes {
                 Faixa::nova("B/Maria - Rio.mp3".into()),
             ],
             sujo: false,
+            baralhos: HashMap::new(),
         };
         assert_eq!(b.buscar("fogo chao", 10).len(), 1);
         assert_eq!(b.buscar("RENATO", 10).len(), 1);
@@ -247,25 +295,60 @@ mod testes {
         assert_eq!(b.buscar("xyz", 10).len(), 0);
     }
 
-    /// Agendamento de lista: só sai música de dentro da pasta escolhida,
-    /// com a barra do sistema (no Windows o índice guarda "Gauchas\\x.mp3").
+    fn acervo(rels: &[&str]) -> Biblioteca {
+        let mut faixas: Vec<Faixa> =
+            rels.iter().map(|r| Faixa::nova(Path::new(r).components().collect::<PathBuf>().to_string_lossy().into_owned())).collect();
+        faixas.sort_by(|a, b| a.rel.cmp(&b.rel));
+        Biblioteca { raiz: Some(PathBuf::from("/m")), faixas, sujo: false, baralhos: HashMap::new() }
+    }
+
+    /// Agendamento de lista: só sai música de dentro da pasta escolhida (com a
+    /// barra do sistema: no Windows o índice guarda "Gauchas\\x.mp3").
     #[test]
     fn sorteia_so_dentro_da_pasta() {
-        let raiz = PathBuf::from("/m");
-        let gauchas = Path::new("Gauchas").join("Renato - Fogo.mp3");
-        let b = Biblioteca {
-            raiz: Some(raiz.clone()),
-            faixas: vec![
-                Faixa::nova(gauchas.to_string_lossy().into_owned()),
-                Faixa::nova(Path::new("Gauchas2").join("X - Y.mp3").to_string_lossy().into_owned()),
-                Faixa::nova(Path::new("Sertanejo").join("A - B.mp3").to_string_lossy().into_owned()),
-            ],
-            sujo: false,
-        };
+        let mut b = acervo(&["Gauchas/Renato - Fogo.mp3", "Gauchas2/X - Y.mp3", "Sertanejo/A - B.mp3"]);
+        let gauchas = Path::new("/m").join("Gauchas");
         for _ in 0..20 {
-            let f = b.aleatoria_em(&raiz.join("Gauchas")).unwrap();
-            assert_eq!(PathBuf::from(f.caminho), raiz.join(&gauchas));
+            let f = b.proxima_em(Some(&gauchas)).unwrap();
+            assert!(Path::new(&f.caminho).starts_with(&gauchas), "{}", f.caminho);
         }
-        assert!(b.aleatoria_em(&raiz.join("Vazia")).is_none());
+        assert!(b.proxima_em(Some(&Path::new("/m").join("Vazia"))).is_none());
+    }
+
+    /// Baralho: toca todas da pasta antes de repetir, e a última de uma rodada
+    /// não abre a seguinte.
+    #[test]
+    fn baralho_nao_repete() {
+        let nomes: Vec<String> = (0..20).map(|i| format!("P/Artista - Musica {i}.mp3")).collect();
+        let mut b = acervo(&nomes.iter().map(String::as_str).collect::<Vec<_>>());
+        let pasta = Path::new("/m").join("P");
+        let mut anterior = String::new();
+        for _ in 0..10 {
+            let mut rodada = std::collections::HashSet::new();
+            for _ in 0..20 {
+                let f = b.proxima_em(Some(&pasta)).unwrap().caminho;
+                assert_ne!(f, anterior, "repetiu seguida");
+                assert!(rodada.insert(f.clone()), "repetiu antes de acabar a rodada");
+                anterior = f;
+            }
+        }
+        // Acervo todo (sem lista): também em baralho.
+        let mut todas = std::collections::HashSet::new();
+        for _ in 0..20 {
+            assert!(todas.insert(b.proxima_em(None).unwrap().caminho));
+        }
+    }
+
+    /// Música apagada depois de embaralhar não sai.
+    #[test]
+    fn baralho_pula_apagada() {
+        let mut b = acervo(&["P/A - 1.mp3", "P/A - 2.mp3", "P/A - 3.mp3"]);
+        let pasta = Path::new("/m").join("P");
+        let primeira = b.proxima_em(Some(&pasta)).unwrap().caminho;
+        let apagar = b.baralhos[&pasta].cartas[0].clone();
+        b.atualizar_caminho(&apagar);
+        let resto: Vec<String> = (0..2).map(|_| b.proxima_em(Some(&pasta)).unwrap().caminho).collect();
+        assert!(!resto.contains(&apagar.to_string_lossy().into_owned()));
+        assert!(!resto.contains(&primeira) || resto[0] != primeira);
     }
 }

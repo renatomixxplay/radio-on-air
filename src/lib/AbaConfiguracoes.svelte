@@ -286,6 +286,15 @@
           <span></span>
         </button>
       </div>
+      <div class="linha item">
+        <div class="textos">
+          <span>Abrir em tela cheia</span>
+          <span class="suave">O programa já abre ocupando a tela toda. Para entrar ou sair na hora: botão no topo ou tecla F11.</span>
+        </div>
+        <button class="chave" class:on={r.abrir_tela_cheia} onclick={() => api.definirAbrirTelaCheia(!r.abrir_tela_cheia)} aria-label="Abrir em tela cheia">
+          <span></span>
+        </button>
+      </div>
     </section>
     <h3 class="grupo">Músicas</h3>
     <section class="painel cartao">
@@ -418,35 +427,6 @@
     border-color: var(--borda-forte);
     border-radius: 8px;
     flex: none;
-  }
-  .chave {
-    width: 44px;
-    height: 24px;
-    padding: 0;
-    border: none;
-    border-radius: 999px;
-    background: var(--borda-forte);
-    position: relative;
-    flex: none;
-  }
-  .chave:active {
-    transform: none;
-  }
-  .chave span {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #fff;
-    transition: left 0.15s;
-  }
-  .chave.on {
-    background: #238636;
-  }
-  .chave.on span {
-    left: 23px;
   }
   .msg {
     padding: 0 14px 8px;

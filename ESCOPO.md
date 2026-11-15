@@ -33,6 +33,9 @@ Software de automação de rádio (rádio DJ) para Linux, open source, feito par
 - 💡 Possivelmente **Windows** no futuro (`.exe`/`.msi`; o Liquidsoap tem versão Windows).
 - ✅ Desenvolvimento no **macOS** (Intel): Liquidsoap compilado isolado em `~/.opam` (sem Homebrew mexer no sistema).
 - ✅ O motor de áudio **liga sozinho ao abrir o programa**, em segundo plano (no Mac leva ~4 s).
+- ✅ **Motor que se religa sozinho:** se o motor cair (placa USB solta, driver, arquivo estragado, antivírus…), o aviso vermelho mostra o motivo com "religando…" e em **3 s** ele volta. Se a rádio estava no ar, continua no ar com a **próxima** da fila (a que tocava não volta, porque pode ter sido ela que derrubou o motor); link volta a conectar e agendados pendentes seguem. Se o motor não conseguir ligar com a rádio no ar, tenta de novo **a cada 10 s** sem tirar do ar. Estava pausada: volta parada. Testado no Mac derrubando o motor duas vezes seguidas.
+- ✅ **Fechou o programa, fecha o motor** e a gravação/transmissão.
+- ✅ **Tela cheia:** botão (só ícone) no topo, depois do relógio, e tecla **F11** (no Mac o sistema usa o F11; lá só o botão). Em Configurações, chave **"Abrir em tela cheia"** (desligada por padrão).
 - ✅ No Mac a saída tem uma folga de **1 s de áudio** contra travadinhas (no Linux não precisa).
 
 ### Arquivos de dados
@@ -58,7 +61,7 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux), `~/Library/Application Su
 - Caminhos no Windows usam `\`: o código compara caminhos por partes (`Path::starts_with`), nunca procurando `/` no texto.
 - **Caminhos com acento** (ex.: usuário do Windows "Rádio Cidade"): o Liquidsoap de Windows não abre arquivos com acento no caminho. Se alguém instalar numa pasta com acento, o motor roda de uma cópia em `C:\ProgramData\RadioOnAir\liquidsoap` (scripts e registros também ficam em `C:\ProgramData\RadioOnAir`), e músicas/pastas com acento vão para ele pelo **nome curto** do Windows (8.3, sem acento), traduzido de volta para a tela.
 - O aviso vermelho mostra a mensagem real do motor quando ele não abre.
-- Testado: instala e abre; motor falhava com usuário com acento (corrigido, aguardando novo teste).
+- Testado: instala, abre e toca som (usuário com acento).
 
 ## 3. Telas
 
@@ -126,8 +129,8 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 ## 5. Fila ✅
 
 - Até **10 itens**; o automático garante o **mínimo de 3** (quando cai para 3, puxa mais 1).
-- O automático puxa aleatório da **lista de músicas ativa** (agendamento tipo Lista) ou do acervo inteiro.
-- 💡 Não repetir a mesma música por X horas.
+- O automático puxa da **lista de músicas ativa** (agendamento tipo Lista) ou do acervo inteiro, em **baralho**: a pasta é embaralhada e as músicas saem na ordem do baralho; só quando **todas** tocaram ela é embaralhada de novo (a última da rodada não abre a seguinte). Ou seja, **nenhuma música repete antes de todas as outras da pasta**. Um baralho por pasta, só na memória (ao abrir o programa, embaralha de novo). Música apagada depois de embaralhar é pulada; música nova entra na rodada seguinte. Música posta na fila **à mão** não segue a regra. Pasta da lista vazia ou apagada: baralho do acervo todo. Pasta fora do acervo: lida direto do disco.
+- No topo da fila: **Fila · Playlist _nome da pasta_** (a lista valendo agora).
 - 💡 Não repetir o mesmo artista por X minutos.
 - 💡 Crossfade entre músicas.
 
@@ -145,6 +148,7 @@ Por **horário + dias da semana**. O programa só preenche/executa — não exis
 
 - **Agendamento não entra na fila e não se pula:** comercial e hora certa tocam numa sequência própria antes da fila. Passar não pula agendamento; se pular uma música, o comercial que estava esperando continua garantido.
 - Fora do ar, comercial e hora certa **não são guardados** para depois (lista de músicas vale mesmo fora do ar).
+- **Ativar/desativar:** chave ao lado de cada agendamento na lista. Desativado fica apagadinho, **não toca** e **não ocupa o horário** (dá para criar outro no mesmo horário). Ao ativar de novo, confere conflito e avisa se o horário já está ocupado.
 - **Nunca dois agendamentos no mesmo horário** num mesmo dia (salvar avisa). A **hora certa** pode cair junto com qualquer outro e toca primeiro.
 - Voz da hora certa que a rádio usa: `audios/Hora Certa (Voz Fem)/` no projeto.
 - Várias **pastas** por agendamento, tocando **na ordem anexada**; cada pasta **Todos** ou **Só um** (rodízio salvo).

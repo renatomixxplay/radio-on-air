@@ -33,10 +33,13 @@
   import aovivo from "@tabler/icons/outline/broadcast.svg?raw";
   import gravar from "@tabler/icons/outline/player-record.svg?raw";
   import transmitir from "@tabler/icons/outline/world.svg?raw";
+  import telaCheia from "@tabler/icons/outline/maximize.svg?raw";
+  import sairTelaCheia from "@tabler/icons/outline/minimize.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
     search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto, aovivo, gravar, transmitir,
+    telaCheia, sairTelaCheia,
   };
   export type NomeIcone = keyof typeof icones;
 </script>

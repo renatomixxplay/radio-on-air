@@ -38,13 +38,32 @@
     recebidoEm = Date.now();
   }
 
+  // Tela cheia: botão do topo ou F11. O ícone acompanha a janela (ela também
+  // pode sair da tela cheia pelo próprio sistema).
+  let telaCheia = $state(false);
+  const conferirTelaCheia = () => api.telaCheiaAgora().then((v) => (telaCheia = v));
+  async function alternarTelaCheia() {
+    telaCheia = await api.alternarTelaCheia();
+  }
+  function tecla(ev: KeyboardEvent) {
+    if (ev.key === "F11") {
+      ev.preventDefault();
+      alternarTelaCheia();
+    }
+  }
+
   onMount(() => {
     api.estado().then(receber);
     const parar = api.aoMudar(receber);
+    conferirTelaCheia();
+    window.addEventListener("resize", conferirTelaCheia);
+    window.addEventListener("keydown", tecla);
     // Só o relógio e o tempo da faixa mudam sozinhos; o resto vem do programa.
     const t = setInterval(() => (agora = new Date()), 500);
     return () => {
       clearInterval(t);
+      window.removeEventListener("resize", conferirTelaCheia);
+      window.removeEventListener("keydown", tecla);
       parar.then((f) => f());
     };
   });
@@ -106,6 +125,9 @@
         {/if}
       {/if}
       <span class="relogio mono">{relogio}</span>
+      <button class="tela-cheia" title={telaCheia ? "Sair da tela cheia (F11)" : "Tela cheia (F11)"} onclick={alternarTelaCheia}>
+        <Icone nome={telaCheia ? "sairTelaCheia" : "telaCheia"} tamanho={20} />
+      </button>
     </div>
   </header>
 
@@ -240,6 +262,17 @@
   .ligando {
     font-size: 13px;
     color: var(--texto-3);
+  }
+  .tela-cheia {
+    display: inline-flex;
+    padding: 5px;
+    background: transparent;
+    border: none;
+    color: var(--texto-3);
+  }
+  .tela-cheia:hover {
+    color: var(--texto);
+    background: var(--painel-2);
   }
   .relogio {
     font-size: 26px;

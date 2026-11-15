@@ -19,6 +19,8 @@ pub struct Config {
     pub pastas: Vec<PathBuf>,
     /// Entrar no ar sozinho ao abrir o programa.
     pub tocar_ao_abrir: bool,
+    /// Abrir o programa já em tela cheia.
+    pub abrir_tela_cheia: bool,
     /// Senha (hash SHA-256) para mexer nas áreas bloqueadas. `None` = sem senha.
     pub senha_hash: Option<String>,
     pub bloqueios: Bloqueios,
@@ -160,6 +162,7 @@ impl Default for Config {
             cartucheira: vec![None; SLOTS_CARTUCHEIRA],
             pastas: vec![],
             tocar_ao_abrir: false,
+            abrir_tela_cheia: false,
             senha_hash: None,
             bloqueios: Bloqueios::default(),
             nome_radio: "Radio On Air".into(),
