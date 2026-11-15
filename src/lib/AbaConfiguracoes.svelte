@@ -74,7 +74,6 @@
     <h3 class="grupo">Músicas</h3>
     <section class="painel cartao">
       <div class="linha item">
-        <span class="cor-pasta"><Icone nome="folder" tamanho={20} /></span>
         <div class="textos">
           <span>Pasta de músicas</span>
           <span class="reticencias suave">{r.pasta_musicas ?? "Nenhuma pasta escolhida"}</span>
@@ -86,7 +85,7 @@
           <span>{r.carregando ? "Lendo as pastas…" : `${r.total_musicas.toLocaleString("pt-BR")} músicas no acervo`}</span>
           <span class="suave">Use se alguma música nova não apareceu na busca.</span>
         </div>
-        <button class="botao" onclick={api.atualizarMusicas}><Icone nome="refresh" tamanho={16} /> Atualizar músicas</button>
+        <button class="botao" onclick={api.atualizarMusicas}><Icone nome="refresh" tamanho={16} /> Atualizar</button>
       </div>
     </section>
     <h3 class="grupo">Senha e bloqueios</h3>
@@ -170,10 +169,6 @@
   }
   .suave {
     font-size: 13px;
-  }
-  .cor-pasta {
-    color: var(--pasta);
-    display: flex;
   }
   .botao {
     height: 36px;
