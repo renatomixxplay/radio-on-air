@@ -34,7 +34,6 @@
     const extra = r.no_ar && !r.pausado ? (agora.getTime() - recebidoEm) / 1000 : 0;
     return r.tocando.decorrido + Math.max(0, extra);
   });
-  const falta = $derived(r?.tocando?.item.duracao != null ? r.tocando.item.duracao - decorrido : 0);
   /** Pré-escuta: aparece no painel de onde o arquivo veio. */
   const previaDecorrido = $derived.by(() => {
     const p = r?.previa;
@@ -92,7 +91,7 @@
           previa={previaPrograma ? null : r.previa}
           {previaDecorrido}
         />
-        <Fila fila={r.fila} {falta} {agora} />
+        <Fila fila={r.fila} />
         <Programas pasta={r.pasta_programas} previa={previaPrograma ? r.previa : null} {previaDecorrido} />
       </div>
     </main>

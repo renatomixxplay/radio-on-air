@@ -52,18 +52,18 @@
 
     <div class="botoes">
       <button class:ligado={ducking} onclick={api.alternarDucking} title="Ducking: abaixa a música para o locutor falar" aria-label="Ducking">
-        <Icone nome="ducking" tamanho={24} />
+        <Icone nome="ducking" tamanho={20} />
       </button>
       {#if noAr && !pausado}
-        <button onclick={api.pausar} title="Pausar" aria-label="Pausar"><Icone nome="pause" tamanho={24} /></button>
+        <button onclick={api.pausar} title="Pausar" aria-label="Pausar"><Icone nome="pause" tamanho={20} /></button>
       {:else}
-        <button class="principal" onclick={api.tocar} title="Tocar" aria-label="Tocar"><Icone nome="play" tamanho={24} /></button>
+        <button class="principal" onclick={api.tocar} title="Tocar" aria-label="Tocar"><Icone nome="play" tamanho={20} /></button>
       {/if}
       <button class:ligado={repetir} onclick={api.alternarRepetir} title="Repetir a música atual" aria-label="Repetir">
-        <Icone nome="repetir" tamanho={24} />
+        <Icone nome="repetir" tamanho={20} />
       </button>
       <button onclick={api.proxima} title="Passar para a próxima" aria-label="Passar" disabled={!noAr}>
-        <Icone nome="skip" tamanho={24} />
+        <Icone nome="skip" tamanho={20} />
       </button>
     </div>
   </div>
@@ -138,8 +138,8 @@
     margin-top: 14px;
   }
   .botoes button {
-    min-width: 64px;
-    height: 48px;
+    min-width: 48px;
+    height: 40px;
     display: inline-flex;
     align-items: center;
     justify-content: center;

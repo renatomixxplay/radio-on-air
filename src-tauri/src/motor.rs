@@ -53,10 +53,10 @@ fn porta_livre() -> u16 {
 fn saida(id: &str, fonte: &str) -> String {
     if cfg!(target_os = "macos") {
         // A saída do macOS tem pouca folga: qualquer tranco do sistema (abrir um app,
-        // disco, memória) virava uma travadinha. O buffer guarda ~0,3 s de áudio pronto
+        // disco, memória) virava uma travadinha. O buffer guarda ~1 s de áudio pronto
         // e se ajusta sozinho ao relógio da placa de som.
         format!(
-            r#"output.url(id="{id}", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", %audio(codec="pcm_f32le")), buffer.adaptative(fallible=true, buffer=0.3, max=2., {fonte}))"#
+            r#"output.url(id="{id}", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", %audio(codec="pcm_f32le")), buffer.adaptative(fallible=true, buffer=1., max=3., {fonte}))"#
         )
     } else {
         format!(r#"output.pulseaudio(id="{id}", fallible=true, {fonte})"#)

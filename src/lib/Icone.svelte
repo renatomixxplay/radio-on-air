@@ -23,11 +23,12 @@
   import repetir from "@tabler/icons/outline/repeat.svg?raw";
   import lixeira from "@tabler/icons/outline/trash.svg?raw";
   import fone from "@tabler/icons/outline/headphones.svg?raw";
+  import vinheta from "@tabler/icons/outline/sparkles.svg?raw";
   import ducking from "@tabler/icons/outline/microphone-2.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
-    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking,
+    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta,
   };
   export type NomeIcone = keyof typeof icones;
 </script>

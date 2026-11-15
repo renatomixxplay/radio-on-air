@@ -2,19 +2,14 @@
   import { api, MIME, tempo, type Arrasto, type Item } from "./api";
   import Icone from "./Icone.svelte";
 
-  let { fila, falta, agora }: { fila: Item[]; falta: number; agora: Date } = $props();
+  let { fila }: { fila: Item[] } = $props();
 
-  const NOMES = { musica: "música", vinheta: "vinheta", programa: "programa" } as const;
+  const ETIQUETAS = {
+    musica: { nome: "Música", icone: "music" },
+    vinheta: { nome: "Vinheta", icone: "vinheta" },
+    programa: { nome: "Programa", icone: "microphone" },
+  } as const;
 
-  // Horário previsto de cada item: agora + o que falta da atual + as anteriores.
-  const horarios = $derived.by(() => {
-    let t = agora.getTime() + Math.max(0, falta) * 1000;
-    return fila.map((i) => {
-      const h = new Date(t);
-      t += (i.duracao ?? 0) * 1000;
-      return `${String(h.getHours()).padStart(2, "0")}:${String(h.getMinutes()).padStart(2, "0")}`;
-    });
-  });
   const total = $derived(fila.reduce((s, i) => s + (i.duracao ?? 0), 0));
 
   let alvo = $state<number | null>(null);
@@ -88,8 +83,9 @@
         role="listitem"
       >
         <span class="pega" class:oculta={item.travado}><Icone nome="grip" tamanho={22} /></span>
-        <span class="hora mono">{horarios[i]}</span>
-        <span class="tag {item.tipo}">{NOMES[item.tipo]}</span>
+        <span class="tag etiqueta {item.tipo}" title={ETIQUETAS[item.tipo].nome} aria-label={ETIQUETAS[item.tipo].nome}>
+          <Icone nome={ETIQUETAS[item.tipo].icone} tamanho={18} />
+        </span>
         <span class="reticencias nome">
           {item.titulo}{#if item.artista}<span class="suave">&nbsp;·&nbsp;{item.artista}</span>{/if}
         </span>
@@ -143,11 +139,15 @@
   .pega.oculta {
     visibility: hidden;
   }
-  .hora {
-    color: var(--texto-3);
-    font-size: 14px;
-    width: 46px;
+  .etiqueta {
+    width: 34px;
+    height: 34px;
     flex: none;
+    padding: 0;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .nome {
     flex: 1;
