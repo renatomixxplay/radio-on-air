@@ -95,6 +95,8 @@ pub struct Estado {
     previa: Option<Previa>,
     prox_id: u64,
     motor: Option<Motor>,
+    /// O motor está sendo ligado em segundo plano.
+    iniciando_motor: bool,
     erro_motor: Option<String>,
     vigia: Option<RecommendedWatcher>,
 }
@@ -141,6 +143,7 @@ struct Retrato {
     pasta_programas: Option<String>,
     cartucheira: Vec<Option<CartuchoDto>>,
     motor_ok: bool,
+    iniciando_motor: bool,
     erro_motor: Option<String>,
     repetir: bool,
     ducking: bool,
@@ -171,6 +174,7 @@ impl Estado {
                 })
                 .collect(),
             motor_ok: self.motor.is_some(),
+            iniciando_motor: self.iniciando_motor,
             erro_motor: self.erro_motor.clone(),
             repetir: self.repetir,
             ducking: self.ducking,
@@ -280,6 +284,9 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
                 p.base = 0.0;
             }
         }
+        EventoMotor::Parou(_) if e.motor.is_none() => {
+            // Falhou ao iniciar: a mensagem já foi dada por quem tentou ligar.
+        }
         EventoMotor::Parou(erro) => {
             e.motor = None;
             e.previa = None;
@@ -294,22 +301,41 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
     emitir(app, &e);
 }
 
+/// Liga o motor em segundo plano (sem travar a tela). Quando ficar pronto,
+/// se a rádio estiver no ar, já entrega a próxima faixa.
 fn iniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
-    if e.motor.is_some() {
+    if e.motor.is_some() || e.iniciando_motor {
         return;
     }
     let Some(exe) = motor::localizar() else {
         e.erro_motor = Some("Liquidsoap não encontrado. Instale o pacote liquidsoap.".into());
         return;
     };
-    let (app2, estado2) = (app.clone(), estado.clone());
-    match Motor::iniciar(&exe, &e.dir, move |ev| ao_evento_motor(&app2, &estado2, ev)) {
-        Ok(m) => {
-            e.motor = Some(m);
-            e.erro_motor = None;
+    e.iniciando_motor = true;
+    e.erro_motor = None;
+    emitir(app, e);
+    let (app, estado, dir) = (app.clone(), estado.clone(), e.dir.clone());
+    std::thread::spawn(move || {
+        let (app2, estado2) = (app.clone(), estado.clone());
+        let resultado = Motor::iniciar(&exe, &dir, move |ev| ao_evento_motor(&app2, &estado2, ev));
+        let mut e = travar(&estado);
+        e.iniciando_motor = false;
+        match resultado {
+            Ok(m) => {
+                e.motor = Some(m);
+                e.erro_motor = None;
+                if e.no_ar && !e.pausado && e.tocando.is_none() {
+                    completar_fila(&app, &estado, &mut e);
+                    e.enviar_proximo();
+                }
+            }
+            Err(err) => {
+                e.no_ar = false;
+                e.erro_motor = Some(err);
+            }
         }
-        Err(err) => e.erro_motor = Some(err),
-    }
+        emitir(&app, &e);
+    });
 }
 
 /// Relógio interno: entrega a próxima faixa perto do fim da atual.
@@ -521,10 +547,6 @@ fn tocar(app: AppHandle, estado: State<Compartilhado>) {
     let compartilhado = estado.inner().clone();
     let mut e = travar(&compartilhado);
     iniciar_motor(&app, &compartilhado, &mut e);
-    if e.motor.is_none() {
-        emitir(&app, &e);
-        return;
-    }
     if e.pausado || e.saida_parada {
         if let Some(m) = &e.motor {
             let _ = m.retomar();
@@ -763,11 +785,13 @@ pub fn run() {
                 previa: None,
                 prox_id: 0,
                 motor: None,
+                iniciando_motor: false,
                 erro_motor: None,
                 vigia: None,
             }));
             app.manage(estado.clone());
             let handle = app.handle().clone();
+            iniciar_motor(&handle, &estado, &mut travar(&estado));
             carregar_biblioteca(handle.clone(), estado.clone(), false);
             iniciar_relogio(handle, estado.clone());
             iniciar_gravador_indice(estado);

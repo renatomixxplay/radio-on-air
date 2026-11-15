@@ -24,6 +24,7 @@ export interface Retrato {
   pasta_programas: string | null;
   cartucheira: ({ nome: string; caminho: string } | null)[];
   motor_ok: boolean;
+  iniciando_motor: boolean;
   erro_motor: string | null;
   repetir: boolean;
   ducking: boolean;

@@ -149,15 +149,19 @@ impl Motor {
             ao_evento(EventoMotor::Parou(erro));
         });
 
-        let motor = Self { processo, porta };
-        // Espera o servidor de comandos subir.
-        for _ in 0..50 {
+        let mut motor = Self { processo, porta };
+        // Espera o servidor de comandos subir. Em máquina lenta ou ocupada o
+        // Liquidsoap pode levar vários segundos para carregar.
+        for _ in 0..600 {
             if TcpStream::connect(("127.0.0.1", porta)).is_ok() {
                 return Ok(motor);
             }
+            if let Ok(Some(_)) = motor.processo.try_wait() {
+                return Err("O motor de áudio fechou ao iniciar (veja motor.log).".into());
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
-        Err("o Liquidsoap não respondeu".into())
+        Err("O motor de áudio não respondeu em 60 segundos.".into())
     }
 
     /// Envia um comando ao servidor telnet do Liquidsoap e devolve a resposta.

@@ -55,6 +55,9 @@
       <button class:on={aba === "config"} onclick={() => (aba = "config")}>Configurações</button>
     </nav>
     <div class="direita">
+      {#if r?.iniciando_motor}
+        <span class="ligando">ligando o áudio…</span>
+      {/if}
       {#if r?.no_ar}
         <span class="no-ar">NO AR</span>
       {:else}
@@ -157,6 +160,10 @@
     padding: 3px 9px;
     border-radius: 4px;
     letter-spacing: 0.04em;
+  }
+  .ligando {
+    font-size: 13px;
+    color: var(--texto-3);
   }
   .no-ar {
     background: var(--no-ar);
