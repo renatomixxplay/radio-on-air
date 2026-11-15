@@ -82,7 +82,7 @@
             <span class="reticencias suave">{f.artista}</span>
           </div>
           <button
-            class="acao-linha"
+            class="acao-linha ouvir"
             class:ouvindo={previa?.caminho === f.caminho}
             aria-label="Pré-escuta"
             title="Pré-escuta"
@@ -90,7 +90,7 @@
           >
             <Icone nome="fone" tamanho={16} />
           </button>
-          <button class="acao-linha" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(f.caminho, "musica")}>
+          <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(f.caminho, "musica")}>
             <Icone nome="plus" tamanho={16} />
           </button>
         </div>
@@ -109,7 +109,7 @@
   .total {
     margin-left: auto;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 13px;
   }
   .trocar {
     border: none;
@@ -154,7 +154,7 @@
     min-width: 0;
   }
   .textos .suave {
-    font-size: 12px;
+    font-size: 13px;
   }
   .acao-linha {
     width: 30px;
@@ -176,6 +176,16 @@
     color: var(--tag-programa);
     border-color: #4a6aa5;
     background: #1e2533;
+  }
+  .acao-linha.ouvir:hover {
+    color: #fff;
+    background: var(--azul);
+    border-color: var(--azul);
+  }
+  .acao-linha.adicionar:hover {
+    color: #fff;
+    background: #238636;
+    border-color: #2ea043;
   }
   .acao {
     margin-top: 10px;

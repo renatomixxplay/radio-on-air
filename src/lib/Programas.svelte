@@ -70,7 +70,7 @@
         >
           <span class="reticencias" style="flex:1">{a.nome}</span>
           <button
-            class="acao-linha"
+            class="acao-linha ouvir"
             class:ouvindo={previa?.caminho === a.caminho}
             aria-label="Pré-escuta"
             title="Pré-escuta"
@@ -78,7 +78,7 @@
           >
             <Icone nome="fone" tamanho={16} />
           </button>
-          <button class="acao-linha" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(a.caminho, "programa")}>
+          <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(a.caminho, "programa")}>
             <Icone nome="plus" tamanho={16} />
           </button>
         </div>
@@ -159,6 +159,16 @@
     color: var(--tag-programa);
     border-color: #4a6aa5;
     background: #1e2533;
+  }
+  .acao-linha.ouvir:hover {
+    color: #fff;
+    background: var(--azul);
+    border-color: var(--azul);
+  }
+  .acao-linha.adicionar:hover {
+    color: #fff;
+    background: #238636;
+    border-color: #2ea043;
   }
   .acao {
     margin-top: 10px;

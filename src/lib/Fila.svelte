@@ -87,7 +87,7 @@
         ondragover={(e) => sobreLinha(e, i)}
         role="listitem"
       >
-        <span class="pega" class:oculta={item.travado}><Icone nome="grip" tamanho={14} /></span>
+        <span class="pega" class:oculta={item.travado}><Icone nome="grip" tamanho={22} /></span>
         <span class="hora mono">{horarios[i]}</span>
         <span class="tag {item.tipo}">{NOMES[item.tipo]}</span>
         <span class="reticencias nome">
@@ -111,7 +111,7 @@
 <style>
   .info {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 13px;
   }
   .item {
     padding-left: 4px;
@@ -137,7 +137,7 @@
     background: #1b231e;
   }
   .pega {
-    color: var(--apagado);
+    color: var(--texto-3);
     display: flex;
   }
   .pega.oculta {
@@ -145,7 +145,7 @@
   }
   .hora {
     color: var(--texto-3);
-    font-size: 13px;
+    font-size: 14px;
     width: 46px;
     flex: none;
   }
@@ -154,7 +154,7 @@
   }
   .dur {
     color: var(--texto-3);
-    font-size: 13px;
+    font-size: 14px;
   }
   .tirar {
     width: 34px;
@@ -173,7 +173,7 @@
     border-color: var(--no-ar);
   }
   .entrando {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--verde);
     width: 64px;
     text-align: center;

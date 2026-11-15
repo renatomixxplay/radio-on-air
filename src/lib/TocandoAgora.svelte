@@ -82,7 +82,7 @@
   }
   .pausado {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 13px;
     padding: 1px 6px;
     border-radius: 4px;
     background: var(--tag-vinheta-bg);

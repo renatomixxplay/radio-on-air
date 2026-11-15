@@ -153,7 +153,7 @@
   }
   .no-ar,
   .fora {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     padding: 3px 9px;
     border-radius: 4px;

@@ -85,7 +85,7 @@ input:focus {
 }
 
 .rotulo {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--texto-3);
   display: flex;
   align-items: center;
@@ -115,7 +115,7 @@ input:focus {
 }
 
 .tag {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   padding: 3px 9px;
   border-radius: 5px;

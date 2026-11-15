@@ -63,7 +63,7 @@
 <style>
   .editar {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 13px;
     padding: 2px 8px;
     color: var(--texto-3);
   }
@@ -91,8 +91,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #c9ccd3;
-    font-size: 12px;
+    color: #d6d9df;
+    font-size: 15px;
+    font-weight: 500;
+    min-height: 48px;
   }
   .slot.vazio {
     border-style: dashed;

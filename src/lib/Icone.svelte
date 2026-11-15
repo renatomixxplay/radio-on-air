@@ -23,7 +23,7 @@
   import repetir from "@tabler/icons/outline/repeat.svg?raw";
   import lixeira from "@tabler/icons/outline/trash.svg?raw";
   import fone from "@tabler/icons/outline/headphones.svg?raw";
-  import ducking from "@tabler/icons/outline/volume-2.svg?raw";
+  import ducking from "@tabler/icons/outline/microphone-2.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,

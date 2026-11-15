@@ -57,7 +57,7 @@
     flex-direction: column;
   }
   .textos .suave {
-    font-size: 12px;
+    font-size: 13px;
   }
   .parar {
     width: 32px;
@@ -91,7 +91,7 @@
   .tempos {
     display: flex;
     justify-content: space-between;
-    font-size: 12px;
+    font-size: 13px;
     color: var(--texto-3);
   }
 </style>
