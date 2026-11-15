@@ -39,7 +39,7 @@ body {
   background: var(--fundo);
   color: var(--texto);
   font-family: system-ui, -apple-system, "Segoe UI", Ubuntu, Cantarell, sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   -webkit-user-select: none;
   user-select: none;
   overflow: hidden;
@@ -85,7 +85,7 @@ input:focus {
 }
 
 .rotulo {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--texto-3);
   display: flex;
   align-items: center;
@@ -102,8 +102,8 @@ input:focus {
 .linha {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 10px;
+  padding: 8px 10px;
   border-bottom: 0.5px solid var(--linha);
 }
 
@@ -115,9 +115,10 @@ input:focus {
 }
 
 .tag {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 5px;
   white-space: nowrap;
 }
 .tag.musica {

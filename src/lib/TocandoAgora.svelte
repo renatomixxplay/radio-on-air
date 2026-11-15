@@ -7,7 +7,16 @@
     decorrido,
     noAr,
     pausado,
-  }: { item: Item | null; decorrido: number; noAr: boolean; pausado: boolean } = $props();
+    repetir,
+    ducking,
+  }: {
+    item: Item | null;
+    decorrido: number;
+    noAr: boolean;
+    pausado: boolean;
+    repetir: boolean;
+    ducking: boolean;
+  } = $props();
 
   const duracao = $derived(item?.duracao ?? null);
   const progresso = $derived(duracao ? Math.min(1, decorrido / duracao) : 0);
@@ -42,14 +51,19 @@
     </div>
 
     <div class="botoes">
+      <button class="com-texto" class:ligado={ducking} onclick={api.alternarDucking} title="Abaixa a música para o locutor falar">
+        <Icone nome="ducking" tamanho={18} /> Ducking
+      </button>
       {#if noAr && !pausado}
-        <button onclick={api.pausar} title="Pausar" aria-label="Pausar"><Icone nome="pause" tamanho={18} /></button>
+        <button onclick={api.pausar} title="Pausar" aria-label="Pausar"><Icone nome="pause" tamanho={20} /></button>
       {:else}
-        <button class="principal" onclick={api.tocar} title="Tocar" aria-label="Tocar"><Icone nome="play" tamanho={18} /></button>
+        <button class="principal" onclick={api.tocar} title="Tocar" aria-label="Tocar"><Icone nome="play" tamanho={20} /></button>
       {/if}
-      <button onclick={api.parar} title="Parar" aria-label="Parar"><Icone nome="stop" tamanho={18} /></button>
-      <button onclick={api.proxima} title="Próxima" aria-label="Próxima" disabled={!noAr}>
-        <Icone nome="skip" tamanho={18} />
+      <button class:ligado={repetir} onclick={api.alternarRepetir} title="Repetir a música atual" aria-label="Repetir">
+        <Icone nome="repetir" tamanho={20} />
+      </button>
+      <button onclick={api.proxima} title="Passar para a próxima" aria-label="Passar" disabled={!noAr}>
+        <Icone nome="skip" tamanho={20} />
       </button>
     </div>
   </div>
@@ -121,11 +135,21 @@
     margin-top: 10px;
   }
   .botoes button {
-    width: 44px;
-    height: 36px;
+    min-width: 48px;
+    height: 40px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
+  }
+  .botoes button.com-texto {
+    padding: 0 14px;
+    font-size: 14px;
+  }
+  .botoes button.ligado {
+    background: var(--tag-vinheta-bg);
+    border-color: var(--pasta);
+    color: var(--tag-vinheta);
   }
   .botoes button.principal {
     background: #1f3a2a;

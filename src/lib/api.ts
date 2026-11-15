@@ -25,6 +25,18 @@ export interface Retrato {
   cartucheira: ({ nome: string; caminho: string } | null)[];
   motor_ok: boolean;
   erro_motor: string | null;
+  repetir: boolean;
+  ducking: boolean;
+  previa: Previa | null;
+}
+
+export interface Previa {
+  caminho: string;
+  titulo: string;
+  artista: string;
+  duracao: number | null;
+  decorrido: number;
+  iniciada: boolean;
 }
 
 export interface Faixa {
@@ -57,6 +69,11 @@ export const api = {
   definirPasta: (qual: "musicas" | "programas", caminho: string) =>
     invoke<void>("definir_pasta", { qual, caminho }),
   atualizarMusicas: () => invoke<void>("atualizar_musicas"),
+  alternarRepetir: () => invoke<void>("alternar_repetir"),
+  alternarDucking: () => invoke<void>("alternar_ducking"),
+  previaTocar: (caminho: string) => invoke<void>("previa_tocar", { caminho }),
+  previaParar: () => invoke<void>("previa_parar"),
+  previaIr: (segundos: number) => invoke<void>("previa_ir", { segundos }),
   aoMudar: (fn: (r: Retrato) => void) => listen<Retrato>("estado", (e) => fn(e.payload)),
 };
 

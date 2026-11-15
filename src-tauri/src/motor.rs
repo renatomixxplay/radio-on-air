@@ -14,6 +14,8 @@ use std::time::Duration;
 pub enum EventoMotor {
     /// Uma faixa começou. Caminho vazio = a fila do motor ficou sem nada (silêncio).
     Faixa(String),
+    /// A pré-escuta começou um arquivo (vazio = terminou).
+    Previa(String),
     /// O processo do Liquidsoap terminou.
     Parou(String),
 }
@@ -47,12 +49,14 @@ fn porta_livre() -> u16 {
         .unwrap_or(14_321)
 }
 
-/// Saída de som de cada sistema.
-fn saida_de_som() -> &'static str {
+/// Linha de saída de som de cada sistema.
+fn saida(id: &str, fonte: &str) -> String {
     if cfg!(target_os = "macos") {
-        r#"output.url(id="saida", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", %audio(codec="pcm_f32le")), radio)"#
+        format!(
+            r#"output.url(id="{id}", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", %audio(codec="pcm_f32le")), {fonte})"#
+        )
     } else {
-        r#"output.pulseaudio(id="saida", fallible=true, radio)"#
+        format!(r#"output.pulseaudio(id="{id}", fallible=true, {fonte})"#)
     }
 }
 
@@ -65,14 +69,24 @@ settings.server.telnet.set(true)
 settings.server.telnet.bind_addr.set("127.0.0.1")
 settings.server.telnet.port.set({porta})
 
+# Ar: fila de músicas (com volume controlável para o ducking) + cartucheira por cima.
 fila = request.queue(id="fila")
 cart = request.queue(id="cart")
 musica = fallback(id="musica", track_sensitive=false, [fila, blank(id="silencio")])
 musica.on_track(synchronous=true, fun (m) -> print("@@FAIXA #{{m['filename']}}"))
+vol = interactive.float("vol", 1.0)
+musica = amplify(vol, musica)
 radio = add(normalize=false, [musica, cart])
-{saida}
+{saida_ar}
+
+# Pré-escuta: saída separada, não mexe no que está no ar.
+pre = request.queue(id="pre")
+previa = fallback(id="previa", track_sensitive=false, [pre, blank()])
+previa.on_track(synchronous=true, fun (m) -> print("@@PRE #{{m['filename']}}"))
+{saida_pre}
 "#,
-        saida = saida_de_som()
+        saida_ar = saida("saida", "radio"),
+        saida_pre = saida("preescuta", "previa"),
     )
 }
 
@@ -87,6 +101,15 @@ impl Motor {
         let arquivo = dir_dados.join("motor.liq");
         std::fs::write(&arquivo, script(porta)).map_err(|e| e.to_string())?;
 
+        // Se o programa fechou de mau jeito antes, o motor antigo pode ter ficado vivo.
+        let arquivo_pid = dir_dados.join("motor.pid");
+        if let Some(pid) = std::fs::read_to_string(&arquivo_pid).ok().and_then(|p| p.trim().parse::<u32>().ok()) {
+            let cmd = Command::new("ps").args(["-p", &pid.to_string(), "-o", "command="]).output();
+            if cmd.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("motor.liq")) {
+                let _ = Command::new("kill").arg(pid.to_string()).status();
+            }
+        }
+
         let mut processo = Command::new(exe)
             .arg(&arquivo)
             .stdout(Stdio::piped())
@@ -94,6 +117,7 @@ impl Motor {
             .spawn()
             .map_err(|e| format!("não consegui abrir o Liquidsoap: {e}"))?;
 
+        let _ = std::fs::write(&arquivo_pid, processo.id().to_string());
         let stdout = processo.stdout.take().expect("stdout");
         let stderr = processo.stderr.take().expect("stderr");
         // Lê o stderr o tempo todo (para o cano não encher) e guarda o fim.
@@ -110,6 +134,8 @@ impl Motor {
             for linha in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if let Some(arq) = linha.strip_prefix("@@FAIXA ") {
                     ao_evento(EventoMotor::Faixa(arq.trim().to_string()));
+                } else if let Some(arq) = linha.strip_prefix("@@PRE") {
+                    ao_evento(EventoMotor::Previa(arq.trim().to_string()));
                 }
             }
             let erro = ultimo_erro.lock().unwrap().clone();
@@ -151,6 +177,30 @@ impl Motor {
 
     pub fn pular(&self) -> Result<(), String> {
         self.comando("fila.skip").map(|_| ())
+    }
+
+    /// Esvazia a fila do motor e pula a faixa atual.
+    pub fn esvaziar_e_pular(&self) -> Result<(), String> {
+        self.comando("fila.flush_and_skip").map(|_| ())
+    }
+
+    /// Volume da música no ar (1.0 = normal). Não afeta a cartucheira.
+    pub fn volume(&self, v: f64) -> Result<(), String> {
+        self.comando(&format!("var.set vol = {v:.3}")).map(|_| ())
+    }
+
+    pub fn previa_tocar(&self, caminho: &str) -> Result<(), String> {
+        self.comando("pre.flush_and_skip")?;
+        self.comando(&format!("pre.push {caminho}")).map(|_| ())
+    }
+
+    pub fn previa_parar(&self) -> Result<(), String> {
+        self.comando("pre.flush_and_skip").map(|_| ())
+    }
+
+    /// Anda `delta` segundos na pré-escuta (negativo volta).
+    pub fn previa_andar(&self, delta: f64) -> Result<(), String> {
+        self.comando(&format!("preescuta.seek {delta:.2}")).map(|_| ())
     }
 
     pub fn cartucho(&self, caminho: &str) -> Result<(), String> {

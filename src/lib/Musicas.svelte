@@ -1,9 +1,22 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, MIME, type Arrasto, type Faixa } from "./api";
+  import { api, MIME, type Arrasto, type Faixa, type Previa } from "./api";
   import Icone from "./Icone.svelte";
+  import PreEscuta from "./PreEscuta.svelte";
 
-  let { pasta, total, carregando }: { pasta: string | null; total: number; carregando: boolean } = $props();
+  let {
+    pasta,
+    total,
+    carregando,
+    previa,
+    previaDecorrido,
+  }: {
+    pasta: string | null;
+    total: number;
+    carregando: boolean;
+    previa: Previa | null;
+    previaDecorrido: number;
+  } = $props();
 
   let termo = $state("");
   let resultado = $state<Faixa[]>([]);
@@ -68,8 +81,17 @@
             <span class="reticencias musica">{f.musica}</span>
             <span class="reticencias suave">{f.artista}</span>
           </div>
-          <button class="mais" aria-label="Pôr na fila" onclick={() => api.filaAdicionar(f.caminho, "musica")}>
-            <Icone nome="plus" tamanho={14} />
+          <button
+            class="acao-linha"
+            class:ouvindo={previa?.caminho === f.caminho}
+            aria-label="Pré-escuta"
+            title="Pré-escuta"
+            onclick={() => (previa?.caminho === f.caminho ? api.previaParar() : api.previaTocar(f.caminho))}
+          >
+            <Icone nome="fone" tamanho={16} />
+          </button>
+          <button class="acao-linha" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(f.caminho, "musica")}>
+            <Icone nome="plus" tamanho={16} />
           </button>
         </div>
       {:else}
@@ -79,6 +101,7 @@
         <div class="vazio">Mostrando as primeiras 200. Refine a busca.</div>
       {/if}
     </div>
+    {#if previa}<PreEscuta {previa} decorrido={previaDecorrido} />{/if}
   {/if}
 </section>
 
@@ -131,18 +154,28 @@
     min-width: 0;
   }
   .textos .suave {
-    font-size: 11px;
+    font-size: 12px;
   }
-  .mais {
-    border: none;
-    background: transparent;
-    color: var(--texto-3);
-    padding: 4px;
+  .acao-linha {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    padding: 0;
+    border-radius: 8px;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--texto-2);
     visibility: hidden;
   }
-  .faixa:hover .mais {
+  .faixa:hover .acao-linha,
+  .acao-linha.ouvindo {
     visibility: visible;
+  }
+  .acao-linha.ouvindo {
+    color: var(--tag-programa);
+    border-color: #4a6aa5;
+    background: #1e2533;
   }
   .acao {
     margin-top: 10px;

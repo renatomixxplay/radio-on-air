@@ -1,9 +1,14 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, MIME, type Arrasto, type Pasta } from "./api";
+  import { api, MIME, type Arrasto, type Pasta, type Previa } from "./api";
   import Icone from "./Icone.svelte";
+  import PreEscuta from "./PreEscuta.svelte";
 
-  let { pasta }: { pasta: string | null } = $props();
+  let {
+    pasta,
+    previa,
+    previaDecorrido,
+  }: { pasta: string | null; previa: Previa | null; previaDecorrido: number } = $props();
 
   let pastas = $state<Pasta[]>([]);
   let aberta = $state<Pasta | null>(null);
@@ -64,8 +69,17 @@
           title="Arraste para a fila ou clique duas vezes"
         >
           <span class="reticencias" style="flex:1">{a.nome}</span>
-          <button class="mais" aria-label="Pôr na fila" onclick={() => api.filaAdicionar(a.caminho, "programa")}>
-            <Icone nome="plus" tamanho={14} />
+          <button
+            class="acao-linha"
+            class:ouvindo={previa?.caminho === a.caminho}
+            aria-label="Pré-escuta"
+            title="Pré-escuta"
+            onclick={() => (previa?.caminho === a.caminho ? api.previaParar() : api.previaTocar(a.caminho))}
+          >
+            <Icone nome="fone" tamanho={16} />
+          </button>
+          <button class="acao-linha" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(a.caminho, "programa")}>
+            <Icone nome="plus" tamanho={16} />
           </button>
         </div>
       {:else}
@@ -84,6 +98,7 @@
       {/each}
     </div>
   {/if}
+  {#if pasta && previa}<PreEscuta {previa} decorrido={previaDecorrido} />{/if}
 </section>
 
 <style>
@@ -124,16 +139,26 @@
   .item {
     cursor: grab;
   }
-  .mais {
-    border: none;
-    background: transparent;
-    color: var(--texto-3);
-    padding: 4px;
+  .acao-linha {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    padding: 0;
+    border-radius: 8px;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--texto-2);
     visibility: hidden;
   }
-  .item:hover .mais {
+  .item:hover .acao-linha,
+  .acao-linha.ouvindo {
     visibility: visible;
+  }
+  .acao-linha.ouvindo {
+    color: var(--tag-programa);
+    border-color: #4a6aa5;
+    background: #1e2533;
   }
   .acao {
     margin-top: 10px;

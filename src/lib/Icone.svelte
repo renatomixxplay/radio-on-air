@@ -20,10 +20,14 @@
   import grip from "@tabler/icons/outline/grip-vertical.svg?raw";
   import alert from "@tabler/icons/outline/alert-triangle.svg?raw";
   import voltar from "@tabler/icons/outline/chevron-left.svg?raw";
+  import repetir from "@tabler/icons/outline/repeat.svg?raw";
+  import lixeira from "@tabler/icons/outline/trash.svg?raw";
+  import fone from "@tabler/icons/outline/headphones.svg?raw";
+  import ducking from "@tabler/icons/outline/volume-2.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
-    search, plus, x, refresh, calendar, settings, grip, alert, voltar,
+    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking,
   };
   export type NomeIcone = keyof typeof icones;
 </script>

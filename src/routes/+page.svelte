@@ -35,6 +35,15 @@
     return r.tocando.decorrido + Math.max(0, extra);
   });
   const falta = $derived(r?.tocando?.item.duracao != null ? r.tocando.item.duracao - decorrido : 0);
+  /** Pré-escuta: aparece no painel de onde o arquivo veio. */
+  const previaDecorrido = $derived.by(() => {
+    const p = r?.previa;
+    if (!p) return 0;
+    return p.decorrido + (p.iniciada ? Math.max(0, (agora.getTime() - recebidoEm) / 1000) : 0);
+  });
+  const previaPrograma = $derived(
+    !!r?.previa && !!r.pasta_programas && r.previa.caminho.startsWith(r.pasta_programas),
+  );
   const relogio = $derived(agora.toLocaleTimeString("pt-BR", { hour12: false }));
 </script>
 
@@ -65,13 +74,26 @@
   {:else if aba === "noar"}
     <main>
       <div class="cima">
-        <TocandoAgora item={r.tocando?.item ?? null} {decorrido} noAr={r.no_ar} pausado={r.pausado} />
+        <TocandoAgora
+          item={r.tocando?.item ?? null}
+          {decorrido}
+          noAr={r.no_ar}
+          pausado={r.pausado}
+          repetir={r.repetir}
+          ducking={r.ducking}
+        />
         <Cartucheira slots={r.cartucheira} />
       </div>
       <div class="baixo">
-        <Musicas pasta={r.pasta_musicas} total={r.total_musicas} carregando={r.carregando} />
+        <Musicas
+          pasta={r.pasta_musicas}
+          total={r.total_musicas}
+          carregando={r.carregando}
+          previa={previaPrograma ? null : r.previa}
+          {previaDecorrido}
+        />
         <Fila fila={r.fila} {falta} {agora} />
-        <Programas pasta={r.pasta_programas} />
+        <Programas pasta={r.pasta_programas} previa={previaPrograma ? r.previa : null} {previaDecorrido} />
       </div>
     </main>
   {:else}

@@ -45,8 +45,12 @@ Navegação no topo: **No ar · Agendamentos · Configurações**.
 ```
 
 - **Barra do topo:** nome da rádio, indicador NO AR, modo AUTO, relógio grande.
-- **Tocando agora:** música, artista, forma de onda, tempo decorrido e restante, botões tocar / pausar / parar / próxima. Sem controle de volume.
-- ✅ **Botão "Abaixar música"** — o microfone fica na mesa de som; o operador aperta para baixar a música enquanto fala e aperta de novo para voltar.
+- **Tocando agora:** música, artista, **barra de progresso** (fica vermelha nos 10 s finais), tempo decorrido e restante. Sem controle de volume.
+- ✅ Botões: **Ducking · Tocar/Pausar · Repetir · Passar** (sem Parar).
+  - **Ducking:** abaixa a música para 20% (desce/sobe suave); a cartucheira não é afetada.
+  - **Repetir:** liga/desliga; enquanto ligado, a música atual toca de novo no fim e a fila espera.
+- ✅ **Pré-escuta** em Músicas e Programas (botão de fone): player com barra clicável para pular. Toca numa saída separada e **não pausa nem mexe no que está no ar** (por enquanto na mesma placa de som).
+- ✅ Fila: botão de **lixeira** grande e arredondado; letras e etiquetas maiores.
 - **Cartucheira:** 8 botões **fixos** (sem páginas) para vinhetas e efeitos.
 - **Músicas** (esquerda): busca por música ou artista; lista sem duração.
 - **Fila** (meio): até 10 itens, com horário previsto, tipo (música, vinheta, comercial, programa) e duração.

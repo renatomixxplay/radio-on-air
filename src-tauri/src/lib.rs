@@ -20,6 +20,8 @@ const FILA_MAXIMO: usize = 10;
 const FILA_MINIMO: usize = 3;
 /// Quantos segundos antes do fim a próxima faixa é entregue ao motor.
 const ANTECEDENCIA: f64 = 5.0;
+/// Volume da música com o botão de ducking ligado (0.2 = 20%).
+const DUCKING_NIVEL: f64 = 0.2;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
@@ -55,6 +57,24 @@ impl Tocando {
     }
 }
 
+/// Arquivo tocando na pré-escuta (saída separada, não vai ao ar).
+struct Previa {
+    caminho: String,
+    titulo: String,
+    artista: String,
+    duracao: Option<f64>,
+    /// O motor já avisou que começou.
+    iniciada: bool,
+    inicio: Instant,
+    base: f64,
+}
+
+impl Previa {
+    fn decorrido(&self) -> f64 {
+        self.base + self.inicio.elapsed().as_secs_f64()
+    }
+}
+
 pub struct Estado {
     dir: PathBuf,
     config: Config,
@@ -66,6 +86,13 @@ pub struct Estado {
     pausado: bool,
     /// A saída do motor foi desligada pelo botão Parar.
     saida_parada: bool,
+    /// Botão repetir: a música atual toca de novo no fim.
+    repetir: bool,
+    /// A repetição já foi entregue ao motor.
+    repeticao_enviada: bool,
+    /// Botão de ducking: música abaixada para o locutor falar.
+    ducking: bool,
+    previa: Option<Previa>,
     prox_id: u64,
     motor: Option<Motor>,
     erro_motor: Option<String>,
@@ -93,6 +120,16 @@ struct CartuchoDto {
 }
 
 #[derive(Serialize, Clone)]
+struct PreviaDto {
+    caminho: String,
+    titulo: String,
+    artista: String,
+    duracao: Option<f64>,
+    decorrido: f64,
+    iniciada: bool,
+}
+
+#[derive(Serialize, Clone)]
 struct Retrato {
     no_ar: bool,
     pausado: bool,
@@ -105,6 +142,9 @@ struct Retrato {
     cartucheira: Vec<Option<CartuchoDto>>,
     motor_ok: bool,
     erro_motor: Option<String>,
+    repetir: bool,
+    ducking: bool,
+    previa: Option<PreviaDto>,
 }
 
 impl Estado {
@@ -132,6 +172,16 @@ impl Estado {
                 .collect(),
             motor_ok: self.motor.is_some(),
             erro_motor: self.erro_motor.clone(),
+            repetir: self.repetir,
+            ducking: self.ducking,
+            previa: self.previa.as_ref().map(|p| PreviaDto {
+                caminho: p.caminho.clone(),
+                titulo: p.titulo.clone(),
+                artista: p.artista.clone(),
+                duracao: p.duracao,
+                decorrido: if p.iniciada { p.decorrido() } else { 0.0 },
+                iniciada: p.iniciada,
+            }),
         }
     }
 
@@ -203,10 +253,13 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
             }
         }
         EventoMotor::Faixa(caminho) => {
+            let repeticao = e.repeticao_enviada && e.tocando.as_ref().is_some_and(|t| t.item.caminho == caminho);
+            e.repeticao_enviada = false;
             let pos = e.fila.iter().position(|i| i.travado && i.caminho == caminho);
-            let item = match pos {
-                Some(p) => e.fila.remove(p),
-                None => {
+            let item = match (repeticao, pos) {
+                (true, _) => e.tocando.as_ref().map(|t| t.item.clone()).expect("tocando"),
+                (false, Some(p)) => e.fila.remove(p),
+                (false, None) => {
                     let (artista, titulo) = biblioteca::artista_e_musica(Path::new(&caminho));
                     let item = e.novo_item(caminho.clone(), artista, titulo, Tipo::Musica);
                     analisar_em_segundo_plano(app, estado, item.id, caminho);
@@ -216,8 +269,21 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
             e.tocando = Some(Tocando { item, inicio: Instant::now(), pausa_desde: None, pausado_total: Duration::ZERO });
             completar_fila(app, estado, &mut e);
         }
+        EventoMotor::Previa(caminho) => {
+            if caminho.is_empty() {
+                if e.previa.as_ref().is_some_and(|p| p.iniciada) {
+                    e.previa = None;
+                }
+            } else if let Some(p) = e.previa.as_mut().filter(|p| p.caminho == caminho) {
+                p.iniciada = true;
+                p.inicio = Instant::now();
+                p.base = 0.0;
+            }
+        }
         EventoMotor::Parou(erro) => {
             e.motor = None;
+            e.previa = None;
+            e.ducking = false;
             e.no_ar = false;
             e.tocando = None;
             e.fila.iter_mut().for_each(|i| i.travado = false);
@@ -255,8 +321,21 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
             continue;
         }
         let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
-        let pronto = e.fila.first().is_some_and(|i| !i.travado);
-        if pronto && falta.is_some_and(|f| f <= ANTECEDENCIA) {
+        if !falta.is_some_and(|f| f <= ANTECEDENCIA) {
+            continue;
+        }
+        if e.repetir {
+            // Repetir: entrega de novo a mesma música, a fila espera.
+            if !e.repeticao_enviada {
+                let atual = e.tocando.as_ref().map(|t| t.item.caminho.clone());
+                if let (Some(m), Some(c)) = (&e.motor, atual) {
+                    if m.enfileirar(&c).is_ok() {
+                        e.repeticao_enviada = true;
+                        emitir(&app, &e);
+                    }
+                }
+            }
+        } else if e.fila.first().is_some_and(|i| !i.travado) {
             e.enviar_proximo();
             emitir(&app, &e);
         }
@@ -506,9 +585,105 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
         return;
     }
     completar_fila(&app, &compartilhado, &mut e);
-    e.enviar_proximo();
+    // Tira do motor o que já tinha sido entregue (inclusive uma repetição);
+    // o motor fica sem nada e o evento de silêncio entrega a próxima da fila.
     if let Some(m) = &e.motor {
-        let _ = m.pular();
+        let _ = m.esvaziar_e_pular();
+    }
+    e.repeticao_enviada = false;
+    e.fila.iter_mut().for_each(|i| i.travado = false);
+    emitir(&app, &e);
+}
+
+#[tauri::command]
+fn alternar_repetir(app: AppHandle, estado: State<Compartilhado>) {
+    let mut e = travar(&estado);
+    e.repetir = !e.repetir;
+    emitir(&app, &e);
+}
+
+/// Liga/desliga o ducking, descendo/subindo o volume suavemente (~0,6 s).
+#[tauri::command]
+fn alternar_ducking(app: AppHandle, estado: State<Compartilhado>) {
+    let compartilhado = estado.inner().clone();
+    let (de, para) = {
+        let mut e = travar(&compartilhado);
+        iniciar_motor(&app, &compartilhado, &mut e);
+        e.ducking = !e.ducking;
+        emitir(&app, &e);
+        if e.ducking { (1.0, DUCKING_NIVEL) } else { (DUCKING_NIVEL, 1.0) }
+    };
+    std::thread::spawn(move || {
+        const PASSOS: u32 = 8;
+        for i in 1..=PASSOS {
+            let v = de + (para - de) * f64::from(i) / f64::from(PASSOS);
+            {
+                let e = travar(&compartilhado);
+                if let Some(m) = &e.motor {
+                    let _ = m.volume(v);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(75));
+        }
+    });
+}
+
+#[tauri::command]
+fn previa_tocar(app: AppHandle, estado: State<Compartilhado>, caminho: String) {
+    let compartilhado = estado.inner().clone();
+    let mut e = travar(&compartilhado);
+    iniciar_motor(&app, &compartilhado, &mut e);
+    let Some(m) = &e.motor else {
+        emitir(&app, &e);
+        return;
+    };
+    if m.previa_tocar(&caminho).is_err() {
+        return;
+    }
+    let (artista, titulo) = biblioteca::artista_e_musica(Path::new(&caminho));
+    e.previa = Some(Previa {
+        caminho: caminho.clone(),
+        titulo,
+        artista,
+        duracao: None,
+        iniciada: false,
+        inicio: Instant::now(),
+        base: 0.0,
+    });
+    emitir(&app, &e);
+    drop(e);
+    // Duração em segundo plano.
+    std::thread::spawn(move || {
+        let d = analise::duracao(Path::new(&caminho));
+        let mut e = travar(&compartilhado);
+        if let Some(p) = e.previa.as_mut().filter(|p| p.caminho == caminho) {
+            p.duracao = d;
+        }
+        emitir(&app, &e);
+    });
+}
+
+#[tauri::command]
+fn previa_parar(app: AppHandle, estado: State<Compartilhado>) {
+    let mut e = travar(&estado);
+    if let Some(m) = &e.motor {
+        let _ = m.previa_parar();
+    }
+    e.previa = None;
+    emitir(&app, &e);
+}
+
+/// Pula a pré-escuta para `segundos` a partir do início.
+#[tauri::command]
+fn previa_ir(app: AppHandle, estado: State<Compartilhado>, segundos: f64) {
+    let mut e = travar(&estado);
+    let Estado { motor, previa, .. } = &mut *e;
+    if let (Some(m), Some(p)) = (motor.as_ref(), previa.as_mut().filter(|p| p.iniciada)) {
+        let alvo = segundos.clamp(0.0, p.duracao.unwrap_or(f64::MAX));
+        if m.previa_andar(alvo - p.decorrido()).is_ok() {
+            p.base = alvo;
+            p.inicio = Instant::now();
+        }
     }
     emitir(&app, &e);
 }
@@ -582,6 +757,10 @@ pub fn run() {
                 no_ar: false,
                 pausado: false,
                 saida_parada: false,
+                repetir: false,
+                repeticao_enviada: false,
+                ducking: false,
+                previa: None,
                 prox_id: 0,
                 motor: None,
                 erro_motor: None,
@@ -610,6 +789,11 @@ pub fn run() {
             cartucheira_definir,
             definir_pasta,
             atualizar_musicas,
+            alternar_repetir,
+            alternar_ducking,
+            previa_tocar,
+            previa_parar,
+            previa_ir,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao abrir o Radio On Air");

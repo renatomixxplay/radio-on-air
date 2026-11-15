@@ -97,8 +97,8 @@
         {#if item.travado}
           <span class="entrando" title="Já foi entregue ao motor">entrando</span>
         {:else}
-          <button class="tirar" aria-label="Tirar da fila" onclick={() => api.filaRemover(item.id)}>
-            <Icone nome="x" tamanho={14} />
+          <button class="tirar" aria-label="Tirar da fila" title="Tirar da fila" onclick={() => api.filaRemover(item.id)}>
+            <Icone nome="lixeira" tamanho={18} />
           </button>
         {/if}
       </div>
@@ -145,8 +145,8 @@
   }
   .hora {
     color: var(--texto-3);
-    font-size: 12px;
-    width: 40px;
+    font-size: 13px;
+    width: 46px;
     flex: none;
   }
   .nome {
@@ -154,24 +154,28 @@
   }
   .dur {
     color: var(--texto-3);
-    font-size: 12px;
+    font-size: 13px;
   }
   .tirar {
-    border: none;
-    background: transparent;
-    padding: 2px;
+    width: 34px;
+    height: 34px;
+    flex: none;
+    border-radius: 8px;
     display: flex;
-    color: var(--texto-3);
-    visibility: hidden;
-  }
-  .item:hover .tirar {
-    visibility: visible;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    color: var(--texto-2);
   }
   .tirar:hover {
-    color: var(--no-ar);
+    color: #fff;
+    background: var(--no-ar);
+    border-color: var(--no-ar);
   }
   .entrando {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--verde);
+    width: 64px;
+    text-align: center;
   }
 </style>
