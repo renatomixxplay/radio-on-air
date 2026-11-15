@@ -58,143 +58,121 @@
 </script>
 
 <div class="aba">
-  <div class="coluna">
-    <section class="painel bloco">
-      <div class="titulo">Ao abrir o programa</div>
-      <button class="opcao" onclick={() => api.definirTocarAoAbrir(!r.tocar_ao_abrir)}>
-        <span class="chave" class:on={r.tocar_ao_abrir}><span></span></span>
-        <span>
-          Entrar no ar sozinho
+  <section class="painel caixa">
+    <div class="cabeca">
+      <div class="titulo">Configurações</div>
+    </div>
+    <div class="lista">
+      <div class="grupo">Ao abrir o programa</div>
+      <div class="linha item">
+        <div class="textos">
+          <span>Entrar no ar sozinho</span>
           <span class="suave">Começa a tocar assim que o programa abre (bom para quando a energia volta).</span>
-        </span>
-      </button>
-    </section>
-
-    <section class="painel bloco">
-      <div class="titulo">Músicas</div>
-      <div class="linha-campo">
-        <span class="cor-pasta"><Icone nome="folder" tamanho={18} /></span>
-        <span class="reticencias caminho">{r.pasta_musicas ?? "Nenhuma pasta escolhida"}</span>
-        <button class="botao" onclick={trocarPastaMusicas}><Icone nome="folderOpen" tamanho={16} /> Trocar</button>
-      </div>
-      <div class="linha-campo">
-        <span class="suave">{r.carregando ? "Lendo as pastas…" : `${r.total_musicas.toLocaleString("pt-BR")} músicas`}</span>
-        <button class="botao" onclick={api.atualizarMusicas} title="Use se alguma música nova não apareceu">
-          <Icone nome="refresh" tamanho={16} /> Atualizar músicas
+        </div>
+        <button class="chave" class:on={r.tocar_ao_abrir} onclick={() => api.definirTocarAoAbrir(!r.tocar_ao_abrir)} aria-label="Entrar no ar sozinho">
+          <span></span>
         </button>
       </div>
-    </section>
 
-    <section class="painel bloco">
-      <div class="titulo">Senha e bloqueios</div>
+      <div class="grupo">Músicas</div>
+      <div class="linha item">
+        <span class="cor-pasta"><Icone nome="folder" tamanho={20} /></span>
+        <div class="textos">
+          <span>Pasta de músicas</span>
+          <span class="reticencias suave">{r.pasta_musicas ?? "Nenhuma pasta escolhida"}</span>
+        </div>
+        <button class="botao" onclick={trocarPastaMusicas}><Icone nome="folderOpen" tamanho={16} /> Trocar</button>
+      </div>
+      <div class="linha item">
+        <div class="textos">
+          <span>{r.carregando ? "Lendo as pastas…" : `${r.total_musicas.toLocaleString("pt-BR")} músicas no acervo`}</span>
+          <span class="suave">Use se alguma música nova não apareceu na busca.</span>
+        </div>
+        <button class="botao" onclick={api.atualizarMusicas}><Icone nome="refresh" tamanho={16} /> Atualizar músicas</button>
+      </div>
+
+      <div class="grupo">Senha e bloqueios</div>
       {#if r.protegido}
-        <div class="suave paragrafo">Pedir senha para abrir:</div>
         {#each AREAS as a}
-          <button class="opcao" onclick={() => alternarBloqueio(a.chave)}>
-            <span class="chave" class:on={r.bloqueios[a.chave]}><span></span></span>
-            <span>{a.nome}</span>
-          </button>
+          <div class="linha item">
+            <div class="textos">
+              <span>Pedir senha para abrir {a.nome}</span>
+            </div>
+            <button class="chave" class:on={r.bloqueios[a.chave]} onclick={() => alternarBloqueio(a.chave)} aria-label={`Bloquear ${a.nome}`}>
+              <span></span>
+            </button>
+          </div>
         {/each}
-        <div class="separador"></div>
-        <div class="suave paragrafo">Trocar a senha</div>
-      {:else}
-        <div class="suave paragrafo">Crie uma senha para bloquear agendamentos, pastas, cartucheira e configurações.</div>
       {/if}
-      <div class="senhas">
+      <div class="linha item">
+        <div class="textos">
+          <span>{r.protegido ? "Trocar a senha" : "Criar senha"}</span>
+          <span class="suave">
+            {r.protegido ? "Mínimo de 4 caracteres." : "Com senha, dá para bloquear agendamentos, pastas, cartucheira e configurações."}
+          </span>
+        </div>
         <input type="password" placeholder="Nova senha" bind:value={nova} />
-        <input type="password" placeholder="Repetir a senha" bind:value={repetir} />
+        <input type="password" placeholder="Repetir" bind:value={repetir} />
         <button class="botao" onclick={salvarSenha}>
-          <Icone nome="cadeado" tamanho={16} />{r.protegido ? "Trocar" : "Criar senha"}
+          <Icone nome="cadeado" tamanho={16} />{r.protegido ? "Trocar" : "Criar"}
         </button>
       </div>
       {#if msgSenha}<div class="msg" class:erro={erroSenha}>{msgSenha}</div>{/if}
       {#if r.protegido}
-        <button class="botao remover" onclick={removerSenha}>Remover senha</button>
+        <div class="linha item">
+          <div class="textos">
+            <span>Remover senha</span>
+            <span class="suave">Tudo fica liberado de novo.</span>
+          </div>
+          <button class="botao remover" onclick={removerSenha}>Remover</button>
+        </div>
       {/if}
-    </section>
-  </div>
+    </div>
+  </section>
 </div>
 
 <style>
   .aba {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+    display: flex;
     padding: 10px;
   }
-  /* Ocupa a largura toda: blocos lado a lado quando cabem. */
-  .coluna {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-    align-items: start;
-    gap: 10px;
+  .caixa {
+    flex: 1;
+    min-width: 0;
   }
-  .bloco {
+  .cabeca {
     padding: 14px;
-    gap: 8px;
+    border-bottom: 0.5px solid var(--borda);
   }
   .titulo {
     font-size: 16px;
     font-weight: 500;
-    margin-bottom: 4px;
+  }
+  .grupo {
+    padding: 16px 14px 6px;
+    font-size: 13px;
+    color: var(--texto-3);
+    text-transform: none;
+  }
+  .item {
+    padding: 10px 14px;
+    gap: 12px;
+  }
+  .textos {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .suave {
-    display: block;
     font-size: 13px;
-  }
-  .paragrafo {
-    margin-bottom: 2px;
-  }
-  .opcao {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 6px 0;
-    border: none;
-    background: transparent;
-    text-align: left;
-  }
-  .opcao:active {
-    transform: none;
-  }
-  .chave {
-    width: 40px;
-    height: 22px;
-    border-radius: 999px;
-    background: var(--borda-forte);
-    position: relative;
-    flex: none;
-  }
-  .chave span {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    transition: left 0.15s;
-  }
-  .chave.on {
-    background: #238636;
-  }
-  .chave.on span {
-    left: 21px;
-  }
-  .linha-campo {
-    display: flex;
-    align-items: center;
-    gap: 10px;
   }
   .cor-pasta {
     color: var(--pasta);
     display: flex;
-  }
-  .caminho {
-    flex: 1;
-  }
-  .linha-campo .suave {
-    flex: 1;
   }
   .botao {
     height: 36px;
@@ -205,21 +183,44 @@
     gap: 6px;
     flex: none;
   }
-  .senhas {
-    display: flex;
-    gap: 8px;
-  }
-  .senhas input {
-    flex: 1;
+  input {
+    width: 180px;
     height: 36px;
     border-color: var(--borda-forte);
     border-radius: 8px;
+    flex: none;
   }
-  .separador {
-    border-top: 0.5px solid var(--borda);
-    margin: 6px 0;
+  .chave {
+    width: 44px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: var(--borda-forte);
+    position: relative;
+    flex: none;
+  }
+  .chave:active {
+    transform: none;
+  }
+  .chave span {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: left 0.15s;
+  }
+  .chave.on {
+    background: #238636;
+  }
+  .chave.on span {
+    left: 23px;
   }
   .msg {
+    padding: 0 14px 8px;
     font-size: 13px;
     color: var(--tag-musica);
   }
@@ -227,7 +228,6 @@
     color: #ff9b9b;
   }
   .remover {
-    align-self: flex-start;
     color: #ff9b9b;
   }
 </style>
