@@ -142,10 +142,6 @@
     justify-content: center;
     gap: 6px;
   }
-  .botoes button.com-texto {
-    padding: 0 14px;
-    font-size: 14px;
-  }
   .botoes button.ligado {
     background: var(--tag-vinheta-bg);
     border-color: var(--pasta);
