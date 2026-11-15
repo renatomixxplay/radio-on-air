@@ -170,12 +170,15 @@
   .suave {
     font-size: 13px;
   }
+  /* Todos os botões da tela com a mesma largura. */
   .botao {
+    width: 130px;
     height: 36px;
     padding: 0 12px;
     border-radius: 8px;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     flex: none;
   }
