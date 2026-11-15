@@ -19,10 +19,15 @@
 
   --tag-musica-bg: #1f3a2a;
   --tag-musica: #8fe0a8;
-  --tag-vinheta-bg: #4a3510;
-  --tag-vinheta: #ffd79a;
-  --tag-programa-bg: #2b3a55;
-  --tag-programa: #a9c4f5;
+  --tag-vinheta-bg: #3a2450;
+  --tag-vinheta: #d4b3f5;
+  --tag-programa-bg: #4a3a0c;
+  --tag-programa: #ffd866;
+  /* destaques que não são etiqueta */
+  --azul-claro: #a9c4f5;
+  --azul-claro-bg: #1e2533;
+  --laranja-bg: #4a3510;
+  --laranja: #ffd79a;
 
   --mono: ui-monospace, "SF Mono", "DejaVu Sans Mono", Menlo, monospace;
   color-scheme: dark;

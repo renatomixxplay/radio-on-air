@@ -85,8 +85,8 @@
     font-size: 13px;
     padding: 1px 6px;
     border-radius: 4px;
-    background: var(--tag-vinheta-bg);
-    color: var(--tag-vinheta);
+    background: var(--laranja-bg);
+    color: var(--laranja);
   }
   .corpo {
     flex: 1;
@@ -146,9 +146,9 @@
     gap: 6px;
   }
   .botoes button.ligado {
-    background: var(--tag-vinheta-bg);
+    background: var(--laranja-bg);
     border-color: var(--pasta);
-    color: var(--tag-vinheta);
+    color: var(--laranja);
   }
   .botoes button.principal {
     background: #1f3a2a;

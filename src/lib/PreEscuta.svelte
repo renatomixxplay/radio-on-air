@@ -47,7 +47,7 @@
     gap: 8px;
   }
   .fone {
-    color: var(--tag-programa);
+    color: var(--azul-claro);
     display: flex;
   }
   .textos {
@@ -86,7 +86,7 @@
   .preenchido {
     display: block;
     height: 100%;
-    background: var(--tag-programa);
+    background: var(--azul-claro);
   }
   .tempos {
     display: flex;

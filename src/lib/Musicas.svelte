@@ -173,7 +173,7 @@
     visibility: visible;
   }
   .acao-linha.ouvindo {
-    color: var(--tag-programa);
+    color: var(--azul-claro);
     border-color: #4a6aa5;
     background: #1e2533;
   }

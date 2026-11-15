@@ -68,7 +68,7 @@
     color: var(--texto-3);
   }
   .editar.on {
-    color: var(--tag-programa);
+    color: var(--azul-claro);
     border-color: #4a6aa5;
   }
   .grade {
@@ -107,7 +107,7 @@
   .slot.aceso {
     background: #5a3a0e;
     border-color: var(--pasta);
-    color: var(--tag-vinheta);
+    color: var(--laranja);
   }
   .limpar {
     position: absolute;
