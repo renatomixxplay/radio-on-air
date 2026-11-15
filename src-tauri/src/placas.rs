@@ -38,7 +38,7 @@ pub fn listar() -> Placas {
 
 fn windows() -> Placas {
     let Some(exe) = crate::motor::localizar() else { return Placas::default() };
-    let Ok(saida) = crate::sistema::comando(exe).arg("--list-portaudio-devices").output() else {
+    let Ok(saida) = crate::sistema::liquidsoap(&exe).arg("--list-portaudio-devices").output() else {
         return Placas::default();
     };
     parse_portaudio(&String::from_utf8_lossy(&saida.stdout))

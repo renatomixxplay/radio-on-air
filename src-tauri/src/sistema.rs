@@ -18,6 +18,17 @@ pub fn comando(exe: impl AsRef<OsStr>) -> Command {
     c
 }
 
+/// Prepara o Liquidsoap para rodar escondido e de dentro da própria pasta: a
+/// versão de Windows grava um cache na pasta de onde é aberta (que pode ser
+/// uma pasta protegida do sistema).
+pub fn liquidsoap(exe: &Path) -> Command {
+    let mut c = comando(exe);
+    if let Some(pasta) = exe.parent().filter(|p| p.is_dir()) {
+        c.current_dir(pasta);
+    }
+    c
+}
+
 /// Se o programa fechou de mau jeito antes, o Liquidsoap antigo pode ter ficado
 /// vivo (segurando a placa de som). Fecha esse processo, se ainda for o nosso:
 /// no Linux/Mac confere o script (`marca`), no Windows o nome do executável.

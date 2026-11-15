@@ -246,7 +246,7 @@ impl Motor {
         let arquivo_pid = dir_dados.join("motor.pid");
         crate::sistema::fechar_antigo(&arquivo_pid, "motor.liq");
 
-        let mut processo = crate::sistema::comando(exe)
+        let mut processo = crate::sistema::liquidsoap(exe)
             .arg(&arquivo)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

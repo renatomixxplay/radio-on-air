@@ -228,7 +228,8 @@ mod testes {
         };
         assert_eq!(b.buscar("fogo chao", 10).len(), 1);
         assert_eq!(b.buscar("RENATO", 10).len(), 1);
-        assert_eq!(b.buscar("maria rio", 10)[0].caminho, "/m/B/Maria - Rio.mp3");
+        // Compara como caminho: no Windows a junção usa "\\" ("/m\\B/Maria - Rio.mp3").
+        assert_eq!(PathBuf::from(&b.buscar("maria rio", 10)[0].caminho), Path::new("/m").join("B/Maria - Rio.mp3"));
         assert_eq!(b.buscar("xyz", 10).len(), 0);
     }
 }

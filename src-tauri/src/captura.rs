@@ -148,7 +148,7 @@ impl Captura {
         let arquivo_pid = dir_dados.join("captura.pid");
         crate::sistema::fechar_antigo(&arquivo_pid, "captura.liq");
 
-        let mut processo = crate::sistema::comando(exe)
+        let mut processo = crate::sistema::liquidsoap(exe)
             .arg(&arquivo)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
