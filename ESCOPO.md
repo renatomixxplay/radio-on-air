@@ -53,7 +53,9 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux) ou `~/Library/Application 
 - O **Liquidsoap 2.4.6 para Windows vai dentro do instalador** (pasta de recursos `liquidsoap/`): não precisa instalar nada além do programa.
 - Som pelo **PortAudio** (saída, pré-escuta e entrada escolhidas pelo nome da placa); gravação e transmissão em MP3 pelo **FFmpeg** (o Liquidsoap do Windows não tem o codificador lame). Mesma folga de 1 s do Mac contra travadinhas.
 - Liquidsoap e consultas de placas abrem **sem janela de terminal**; motor antigo preso é fechado com `tasklist`/`taskkill`.
-- ⚠️ Ainda não testado em Windows de verdade.
+- **Caminhos com acento** (ex.: usuário do Windows "Rádio Cidade"): o Liquidsoap de Windows não abre arquivos com acento no caminho. O motor roda de uma cópia em `C:\ProgramData\RadioOnAir\liquidsoap` (scripts e registros também ficam em `C:\ProgramData\RadioOnAir`), e músicas/pastas com acento vão para ele pelo **nome curto** do Windows (8.3, sem acento), traduzido de volta para a tela.
+- O aviso vermelho mostra a mensagem real do motor quando ele não abre.
+- Testado: instala e abre; motor falhava com usuário com acento (corrigido, aguardando novo teste).
 
 ## 3. Telas
 

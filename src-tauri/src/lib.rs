@@ -592,7 +592,7 @@ fn iniciar_captura(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     let (app, estado) = (app.clone(), estado.clone());
     // Em segundo plano: no Mac, achar a placa leva um segundo.
     std::thread::spawn(move || {
-        let log = dir.join("captura.log").to_string_lossy().into_owned();
+        let log = sistema::pasta_motor(&dir).join("captura.log").to_string_lossy().into_owned();
         let script = captura::script(&log, &audio, &g, &t, &nome);
         let (app2, estado2) = (app.clone(), estado.clone());
         let resultado = captura::Captura::iniciar(&exe, &dir, script, move |ev| ao_evento_captura(&app2, &estado2, geracao, ev));

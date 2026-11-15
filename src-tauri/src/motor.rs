@@ -33,6 +33,29 @@ pub struct Motor {
     porta: u16,
 }
 
+/// Últimas mensagens do Liquidsoap (sem as linhas de registro com data).
+#[derive(Clone, Default)]
+pub struct Mensagens(Arc<Mutex<std::collections::VecDeque<String>>>);
+
+impl Mensagens {
+    pub fn anotar(&self, linha: &str) {
+        let l = linha.trim();
+        let registro = l.starts_with(">>>") || l.chars().take(4).all(|c| c.is_ascii_digit()) && l.len() > 4;
+        if l.is_empty() || registro {
+            return;
+        }
+        let mut v = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if v.len() == 4 {
+            v.pop_front();
+        }
+        v.push_back(l.to_string());
+    }
+
+    pub fn texto(&self) -> String {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).iter().cloned().collect::<Vec<_>>().join(" ")
+    }
+}
+
 /// Lê `<arquivo>\t<cue_in>\t<cue_out>`: devolve o arquivo e quanto vai tocar.
 fn ler_faixa(resto: &str) -> (String, Option<f64>) {
     let mut partes = resto.trim().split('\t');
@@ -50,7 +73,8 @@ static EMBUTIDO: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 pub fn usar_embutido(pasta_recursos: &Path) {
     let exe = pasta_recursos.join("liquidsoap").join(if cfg!(windows) { "liquidsoap.exe" } else { "liquidsoap" });
     if exe.is_file() {
-        let _ = EMBUTIDO.set(exe);
+        // Instalado numa pasta com acento: o Liquidsoap roda de uma cópia sem acento.
+        let _ = EMBUTIDO.set(crate::sistema::liquidsoap_sem_acento(&exe));
     }
 }
 
@@ -237,6 +261,7 @@ impl Motor {
         ao_evento: impl Fn(EventoMotor) + Send + 'static,
     ) -> Result<Self, String> {
         let porta = porta_livre();
+        let dir_dados = &crate::sistema::pasta_motor(dir_dados);
         std::fs::create_dir_all(dir_dados).map_err(|e| e.to_string())?;
         let arquivo = dir_dados.join("motor.liq");
         let log = dir_dados.join("motor.log").to_string_lossy().into_owned();
@@ -256,29 +281,30 @@ impl Motor {
         let _ = std::fs::write(&arquivo_pid, processo.id().to_string());
         let stdout = processo.stdout.take().expect("stdout");
         let stderr = processo.stderr.take().expect("stderr");
-        // Lê o stderr o tempo todo (para o cano não encher) e guarda o fim.
-        let ultimo_erro = Arc::new(Mutex::new(String::new()));
-        let guarda = ultimo_erro.clone();
+        // Lê stderr e stdout o tempo todo (para o cano não encher) e guarda as
+        // últimas mensagens: é o que aparece no aviso se o motor cair.
+        let mensagens = Mensagens::default();
+        let guarda = mensagens.clone();
         std::thread::spawn(move || {
             for linha in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if !linha.trim().is_empty() {
-                    *guarda.lock().unwrap() = linha;
-                }
+                guarda.anotar(&linha);
             }
         });
+        let ultimas = mensagens.clone();
         std::thread::spawn(move || {
             for linha in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if let Some(resto) = linha.strip_prefix("@@FAIXA") {
                     let (arq, toca) = ler_faixa(resto);
-                    ao_evento(EventoMotor::Faixa(arq, toca));
+                    ao_evento(EventoMotor::Faixa(crate::sistema::do_motor(&arq), toca));
                 } else if let Some(arq) = linha.strip_prefix("@@FALA") {
-                    ao_evento(EventoMotor::Fala(arq.trim().to_string()));
+                    ao_evento(EventoMotor::Fala(crate::sistema::do_motor(arq.trim())));
                 } else if let Some(arq) = linha.strip_prefix("@@PRE") {
-                    ao_evento(EventoMotor::Previa(arq.trim().to_string()));
+                    ao_evento(EventoMotor::Previa(crate::sistema::do_motor(arq.trim())));
+                } else {
+                    ultimas.anotar(&linha);
                 }
             }
-            let erro = ultimo_erro.lock().unwrap().clone();
-            ao_evento(EventoMotor::Parou(erro));
+            ao_evento(EventoMotor::Parou(ultimas.texto()));
         });
 
         let mut motor = Self { processo, porta };
@@ -289,7 +315,14 @@ impl Motor {
                 return Ok(motor);
             }
             if let Ok(Some(_)) = motor.processo.try_wait() {
-                return Err("O motor de áudio fechou ao iniciar (veja motor.log).".into());
+                // Dá tempo de ler o que ele escreveu antes de fechar.
+                std::thread::sleep(Duration::from_millis(300));
+                let msg = mensagens.texto();
+                return Err(if msg.is_empty() {
+                    "O motor de áudio fechou ao iniciar.".into()
+                } else {
+                    format!("O motor de áudio fechou ao iniciar: {msg}")
+                });
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -318,7 +351,7 @@ impl Motor {
     /// volume igual e mistura); o resto com `volume:` (só volume igual).
     pub fn enfileirar(&self, caminho: &str, musica: bool) -> Result<(), String> {
         let prefixo = if musica { "autocue:" } else { "volume:" };
-        self.comando(&format!("fila.push {prefixo}{caminho}")).map(|_| ())
+        self.comando(&format!("fila.push {prefixo}{}", crate::sistema::para_motor(caminho))).map(|_| ())
     }
 
     pub fn pular(&self) -> Result<(), String> {
@@ -351,7 +384,7 @@ impl Motor {
 
     pub fn previa_tocar(&self, caminho: &str) -> Result<(), String> {
         self.comando("pre.flush_and_skip")?;
-        self.comando(&format!("pre.push {caminho}")).map(|_| ())
+        self.comando(&format!("pre.push {}", crate::sistema::para_motor(caminho))).map(|_| ())
     }
 
     pub fn previa_parar(&self) -> Result<(), String> {
@@ -363,19 +396,20 @@ impl Motor {
     /// do Liquidsoap não volta para trás: recomeçar no ponto vale para os dois lados.
     pub fn previa_ir(&self, caminho: &str, segundos: f64) -> Result<(), String> {
         self.comando("pre.flush_and_skip")?;
+        let caminho = crate::sistema::para_motor(caminho);
         self.comando(&format!("pre.push annotate:liq_cue_in=\"{segundos:.2}\":{caminho}")).map(|_| ())
     }
 
     /// Toca arquivos por cima da música, em sequência (comercial com ducking).
     pub fn falar(&self, caminhos: &[String]) -> Result<(), String> {
         for c in caminhos {
-            self.comando(&format!("fala.push volume:{c}"))?;
+            self.comando(&format!("fala.push volume:{}", crate::sistema::para_motor(c)))?;
         }
         Ok(())
     }
 
     pub fn cartucho(&self, caminho: &str) -> Result<(), String> {
-        self.comando(&format!("cart.push volume:{caminho}")).map(|_| ())
+        self.comando(&format!("cart.push volume:{}", crate::sistema::para_motor(caminho))).map(|_| ())
     }
 
     pub fn pausar(&self) -> Result<(), String> {

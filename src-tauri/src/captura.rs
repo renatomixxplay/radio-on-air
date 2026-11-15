@@ -7,7 +7,6 @@ use crate::config::{Audio, Gravacao, Transmissao, DIAS_GRAVACAO};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
-use std::sync::{Arc, Mutex};
 
 pub enum EventoCaptura {
     /// Estado da transmissão: "conectado", "caiu" ou "erro <mensagem>".
@@ -71,6 +70,10 @@ pub fn caminho_gravacao(pasta: &Path) -> String {
 
 fn gravacao(g: &Gravacao) -> String {
     let Some(pasta) = g.pasta.as_deref().filter(|_| g.ligada) else { return String::new() };
+    // Pasta com acento (Windows): grava pelo nome curto dela.
+    let _ = std::fs::create_dir_all(pasta);
+    let pasta = std::path::PathBuf::from(crate::sistema::para_motor(&pasta.to_string_lossy()));
+    let pasta = pasta.as_path();
     let virada = if g.minutos == 30 { "0m or 30m" } else { "0m" };
     format!(
         r#"
@@ -140,6 +143,7 @@ impl Captura {
         script: String,
         ao_evento: impl Fn(EventoCaptura) + Send + 'static,
     ) -> Result<Self, String> {
+        let dir_dados = &crate::sistema::pasta_motor(dir_dados);
         std::fs::create_dir_all(dir_dados).map_err(|e| e.to_string())?;
         let arquivo = dir_dados.join("captura.liq");
         std::fs::write(&arquivo, script).map_err(|e| e.to_string())?;
@@ -158,13 +162,12 @@ impl Captura {
 
         let stdout = processo.stdout.take().expect("stdout");
         let stderr = processo.stderr.take().expect("stderr");
-        let ultimo_erro = Arc::new(Mutex::new(String::new()));
-        let guarda = ultimo_erro.clone();
+        // Guarda as últimas mensagens do Liquidsoap: aparecem no aviso se ele cair.
+        let mensagens = crate::motor::Mensagens::default();
+        let guarda = mensagens.clone();
         std::thread::spawn(move || {
             for linha in BufReader::new(stderr).lines().map_while(Result::ok) {
-                if !linha.trim().is_empty() {
-                    *guarda.lock().unwrap() = linha;
-                }
+                guarda.anotar(&linha);
             }
         });
         std::thread::spawn(move || {
@@ -173,10 +176,11 @@ impl Captura {
                     ao_evento(EventoCaptura::Transmissao(t.trim().to_string()));
                 } else if let Some(t) = linha.strip_prefix("@@GRAV ") {
                     ao_evento(EventoCaptura::Gravacao(t.trim().to_string()));
+                } else {
+                    mensagens.anotar(&linha);
                 }
             }
-            let erro = ultimo_erro.lock().unwrap().clone();
-            ao_evento(EventoCaptura::Parou(erro));
+            ao_evento(EventoCaptura::Parou(mensagens.texto()));
         });
         Ok(Self { processo })
     }

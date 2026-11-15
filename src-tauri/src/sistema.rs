@@ -50,3 +50,155 @@ pub fn fechar_antigo(arquivo_pid: &Path, marca: &str) {
         }
     }
 }
+
+// ---------- caminhos com acento (Windows) ----------
+//
+// O Liquidsoap de Windows não abre arquivos cujo caminho tem acento (ex.: um
+// usuário "Rádio Cidade"): nem os próprios arquivos de apoio, nem músicas.
+// Saídas: o motor roda numa pasta sem acento, e cada arquivo vai para ele pelo
+// "nome curto" que o Windows guarda (ex.: GAUCHA~1), traduzido de volta ao voltar.
+
+fn so_ascii(p: &Path) -> bool {
+    p.to_str().is_some_and(|s| s.is_ascii())
+}
+
+/// Pasta sem acento para o Liquidsoap (Windows): `C:\ProgramData\RadioOnAir`.
+fn pasta_sem_acento() -> std::path::PathBuf {
+    let base = std::env::var_os("PROGRAMDATA").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\ProgramData".into());
+    base.join("RadioOnAir")
+}
+
+/// Onde ficam script, registro e pid do motor e da captura. No Windows, se a
+/// pasta de dados tiver acento, vai para uma pasta sem acento.
+pub fn pasta_motor(dir_dados: &Path) -> std::path::PathBuf {
+    if cfg!(windows) && !so_ascii(dir_dados) {
+        pasta_sem_acento()
+    } else {
+        dir_dados.to_path_buf()
+    }
+}
+
+/// Liquidsoap instalado numa pasta com acento: copia (uma vez) a pasta dele para
+/// uma sem acento e devolve o novo executável.
+pub fn liquidsoap_sem_acento(exe: &Path) -> std::path::PathBuf {
+    if !cfg!(windows) || so_ascii(exe) {
+        return exe.to_path_buf();
+    }
+    let (Some(origem), Some(nome)) = (exe.parent(), exe.file_name()) else { return exe.to_path_buf() };
+    let destino = pasta_sem_acento().join("liquidsoap");
+    let novo = destino.join(nome);
+    // Copia de novo só se mudou (outra versão do instalador).
+    let tamanho = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
+    if tamanho(&novo) != tamanho(exe) || tamanho(&novo).is_none() {
+        let _ = std::fs::remove_dir_all(&destino);
+        if copiar_pasta(origem, &destino).is_err() {
+            return exe.to_path_buf();
+        }
+    }
+    novo
+}
+
+fn copiar_pasta(de: &Path, para: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(para)?;
+    for item in std::fs::read_dir(de)? {
+        let item = item?;
+        let alvo = para.join(item.file_name());
+        if item.file_type()?.is_dir() {
+            copiar_pasta(&item.path(), &alvo)?;
+        } else {
+            std::fs::copy(item.path(), alvo)?;
+        }
+    }
+    Ok(())
+}
+
+/// Caminho de arquivo para mandar ao motor: no Windows, com acento, vira o nome
+/// curto (sem acento). Se não houver nome curto, vai como está.
+pub fn para_motor(caminho: &str) -> String {
+    #[cfg(windows)]
+    if !caminho.is_ascii() {
+        if let Some(curto) = win::curto(Path::new(caminho)).filter(|c| so_ascii(c)) {
+            return curto.to_string_lossy().into_owned();
+        }
+    }
+    caminho.to_string()
+}
+
+/// Caminho que o motor devolveu: no Windows, nome curto volta ao nome normal.
+pub fn do_motor(caminho: &str) -> String {
+    #[cfg(windows)]
+    if caminho.contains('~') {
+        if let Some(longo) = win::longo(Path::new(caminho)) {
+            return longo.to_string_lossy().into_owned();
+        }
+    }
+    caminho.to_string()
+}
+
+#[cfg(windows)]
+mod win {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Path, PathBuf};
+
+    type Conversao = unsafe extern "system" fn(*const u16, *mut u16, u32) -> u32;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetShortPathNameW(longo: *const u16, curto: *mut u16, tamanho: u32) -> u32;
+        fn GetLongPathNameW(curto: *const u16, longo: *mut u16, tamanho: u32) -> u32;
+    }
+
+    fn converter(p: &Path, f: Conversao) -> Option<PathBuf> {
+        let entrada: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut saida = vec![0u16; 1024];
+        loop {
+            // SAFETY: entrada termina em zero; saida tem o tamanho informado.
+            let n = unsafe { f(entrada.as_ptr(), saida.as_mut_ptr(), saida.len() as u32) } as usize;
+            if n == 0 {
+                return None;
+            }
+            if n < saida.len() {
+                saida.truncate(n);
+                return Some(PathBuf::from(OsString::from_wide(&saida)));
+            }
+            saida.resize(n + 1, 0);
+        }
+    }
+
+    pub fn curto(p: &Path) -> Option<PathBuf> {
+        converter(p, GetShortPathNameW)
+    }
+
+    pub fn longo(p: &Path) -> Option<PathBuf> {
+        converter(p, GetLongPathNameW)
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    #[test]
+    fn caminho_sem_acento_passa_igual() {
+        assert_eq!(para_motor("/m/Fogo de Chao.mp3"), "/m/Fogo de Chao.mp3");
+        assert_eq!(do_motor("/m/Fogo de Chao.mp3"), "/m/Fogo de Chao.mp3");
+    }
+
+    /// No Windows: arquivo com acento vai sem acento para o motor e volta igual.
+    #[cfg(windows)]
+    #[test]
+    fn acento_vira_nome_curto_e_volta() {
+        let dir = std::env::temp_dir().join("Rádio Ção teste");
+        std::fs::create_dir_all(&dir).unwrap();
+        let arq = dir.join("Fogo de Chão.mp3");
+        std::fs::write(&arq, b"").unwrap();
+        let original = arq.to_string_lossy().into_owned();
+        let curto = para_motor(&original);
+        if curto != original {
+            assert!(curto.is_ascii(), "{curto}");
+            assert_eq!(do_motor(&curto).to_lowercase(), original.to_lowercase());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

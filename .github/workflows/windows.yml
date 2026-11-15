@@ -25,6 +25,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Guarda o que já compilou mesmo se algo falhar depois.
+          cache-on-failure: true
 
       - name: Dependências do programa
         run: npm ci
@@ -44,9 +46,13 @@ jobs:
           & src-tauri/liquidsoap-win/liquidsoap.exe --version
           & src-tauri/liquidsoap-win/liquidsoap.exe --list-portaudio-devices
 
+      # Os testes conferem os scripts do motor e da gravação com o próprio
+      # Liquidsoap de Windows (pega erro de script antes de instalar).
       - name: Testes
         working-directory: src-tauri
-        run: cargo test --lib
+        env:
+          RADIO_LIQUIDSOAP: ${{ github.workspace }}\src-tauri\liquidsoap-win\liquidsoap.exe
+        run: cargo test --lib -- --nocapture
 
       - name: Gerar instalador
         run: npx tauri build
