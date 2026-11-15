@@ -100,7 +100,7 @@ Funciona por **horário + dias da semana**. Não existe "sequência/receita": o 
 | ✅ **Comercial com ducking** | No horário, entra **por cima** da música: abaixa a música, toca a fala e sobe a música de novo. |
 | ✅ **Hora certa** | Toca o arquivo da hora atual da pasta de hora certa. ❓ Padrão de nome dos arquivos e se espera a música acabar ou entra com ducking. |
 
-- ✅ **Programas dos locutores** entram de dois jeitos: o operador **arrasta para a fila**, ou é **agendado como comercial** (agendamento apontando para a pasta do programa).
+- ✅ **Programas dos locutores** entram de dois jeitos: o operador **adiciona na fila pelo ➕**, ou é **agendado como comercial** (agendamento apontando para a pasta do programa).
 
 - ✅ Cada agendamento repete nos **dias da semana** marcados.
 - ✅ O agendamento de comercial aponta para uma **pasta** (não um arquivo mp3).
