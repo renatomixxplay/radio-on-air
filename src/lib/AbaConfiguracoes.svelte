@@ -150,15 +150,23 @@
     font-size: 16px;
     font-weight: 500;
   }
+  /* Faixa de título de cada grupo: bem visível para separar as seções. */
   .grupo {
-    padding: 16px 14px 6px;
+    padding: 10px 14px;
     font-size: 13px;
-    color: var(--texto-3);
-    text-transform: none;
+    font-weight: 500;
+    color: var(--texto-2);
+    background: var(--painel-2);
+    border-top: 1px solid var(--borda-forte);
+    border-bottom: 1px solid var(--borda-forte);
+  }
+  .grupo:first-child {
+    border-top: none;
   }
   .item {
-    padding: 10px 14px;
+    padding: 12px 14px;
     gap: 12px;
+    border-bottom: 1px solid #2c313b;
   }
   .textos {
     flex: 1;

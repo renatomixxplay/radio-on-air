@@ -36,7 +36,7 @@
             {/if}
           </div>
           <button class="botao" onclick={() => escolher(i)}>
-            <Icone nome="folderOpen" tamanho={16} />{slot ? "Trocar" : "Escolher"}
+            <Icone nome="folderOpen" tamanho={16} />Escolher
           </button>
           {#if slot}
             <button class="quadrado lixo" onclick={() => api.cartucheiraDefinir(i, null)} title="Esvaziar" aria-label="Esvaziar">
