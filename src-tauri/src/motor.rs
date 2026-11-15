@@ -52,19 +52,25 @@ fn porta_livre() -> u16 {
 /// Linha de saída de som de cada sistema.
 fn saida(id: &str, fonte: &str) -> String {
     if cfg!(target_os = "macos") {
+        // A saída do macOS tem pouca folga: qualquer tranco do sistema (abrir um app,
+        // disco, memória) virava uma travadinha. O buffer guarda ~0,3 s de áudio pronto
+        // e se ajusta sozinho ao relógio da placa de som.
         format!(
-            r#"output.url(id="{id}", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", %audio(codec="pcm_f32le")), {fonte})"#
+            r#"output.url(id="{id}", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", %audio(codec="pcm_f32le")), buffer.adaptative(fallible=true, buffer=0.3, max=2., {fonte}))"#
         )
     } else {
         format!(r#"output.pulseaudio(id="{id}", fallible=true, {fonte})"#)
     }
 }
 
-fn script(porta: u16) -> String {
+fn script(porta: u16, log: &str) -> String {
     format!(
         r#"
 settings.log.stdout.set(false)
-settings.log.file.set(false)
+settings.log.level.set(2)
+settings.log.file.set(true)
+settings.log.file.append.set(false)
+settings.log.file.path.set({log:?})
 settings.server.telnet.set(true)
 settings.server.telnet.bind_addr.set("127.0.0.1")
 settings.server.telnet.port.set({porta})
@@ -99,7 +105,8 @@ impl Motor {
         let porta = porta_livre();
         std::fs::create_dir_all(dir_dados).map_err(|e| e.to_string())?;
         let arquivo = dir_dados.join("motor.liq");
-        std::fs::write(&arquivo, script(porta)).map_err(|e| e.to_string())?;
+        let log = dir_dados.join("motor.log").to_string_lossy().into_owned();
+        std::fs::write(&arquivo, script(porta, &log)).map_err(|e| e.to_string())?;
 
         // Se o programa fechou de mau jeito antes, o motor antigo pode ter ficado vivo.
         let arquivo_pid = dir_dados.join("motor.pid");
