@@ -21,9 +21,9 @@
     </div>
     <button class="botao" onclick={adicionar}><Icone nome="plus" tamanho={16} /> Adicionar pasta</button>
   </div>
-  <section class="painel cartao">
+  <div class="cartoes">
     {#each pastas as p (p.caminho)}
-      <div class="linha item">
+      <div class="painel linha item">
         <span class="cor-pasta"><Icone nome="folder" tamanho={20} /></span>
         <div class="textos">
           <span class="reticencias">{p.nome}</span>
@@ -34,9 +34,9 @@
         </button>
       </div>
     {:else}
-      <div class="vazio">Nenhuma pasta ainda. Use "Adicionar pasta".</div>
+      <div class="painel vazio">Nenhuma pasta ainda. Use "Adicionar pasta".</div>
     {/each}
-  </section>
+  </div>
 </div>
 
 <style>
@@ -61,15 +61,16 @@
   .suave {
     font-size: 13px;
   }
-  .cartao {
-    overflow: hidden;
+  .cartoes {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
   .item {
+    flex-direction: row;
     padding: 12px 14px;
     gap: 12px;
-  }
-  .cartao > .item:last-child {
-    border-bottom: none;
+    border-bottom: 0.5px solid var(--borda);
   }
   .botao {
     height: 38px;

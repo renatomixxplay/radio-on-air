@@ -91,17 +91,16 @@
     <h3 class="grupo">Agendamentos</h3>
     <button class="botao" onclick={novo}><Icone nome="plus" tamanho={16} /> Novo agendamento</button>
   </div>
-  <section class="painel cartao">
-    <div class="filtro">
+  <div class="filtro">
       <button class="chip" class:on={filtro < 0} onclick={() => (filtro = -1)}>Todos</button>
       {#each DIAS_NOME as d, i}
         <button class="chip" class:on={filtro === i} onclick={() => (filtro = i)}>{d}</button>
       {/each}
-    </div>
-    <div class="lista">
+  </div>
+  <div class="lista cartoes">
       {#each visiveis as a (a.id)}
         {@const t = tipoInfo(a.tipo)}
-        <button class="linha ag" class:sel={edicao?.id === a.id} onclick={() => editar(a)}>
+        <button class="painel linha ag" class:sel={edicao?.id === a.id} onclick={() => editar(a)}>
           <span class="hora mono">{a.horario}</span>
           <span class="tag etiqueta {a.tipo}" title={t.nome}><Icone nome={t.icone} tamanho={18} /></span>
           <span class="reticencias pastas">{a.pastas.map((p) => nomePasta(p.caminho)).join(" + ")}</span>
@@ -110,10 +109,9 @@
           </span>
         </button>
       {:else}
-        <div class="vazio">Nenhum agendamento {filtro >= 0 ? "neste dia" : "ainda"}.</div>
+        <div class="painel vazio">Nenhum agendamento {filtro >= 0 ? "neste dia" : "ainda"}.</div>
       {/each}
-    </div>
-  </section>
+  </div>
   </div>
 
   <div class="coluna">
@@ -235,7 +233,13 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 10px 10px 8px;
+    margin: 0 0 10px;
+  }
+  .cartoes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 4px;
   }
   .chip {
     padding: 5px 12px;
@@ -249,10 +253,12 @@
   }
   .ag {
     width: 100%;
-    border: none;
-    border-bottom: 0.5px solid var(--linha);
-    border-radius: 0;
-    background: transparent;
+    flex: none;
+    flex-direction: row;
+    padding: 10px 12px;
+    border: 0.5px solid var(--borda);
+    border-radius: 8px;
+    background: var(--painel);
     text-align: left;
     display: grid;
     grid-template-columns: 56px 34px minmax(0, 1fr) auto;
@@ -262,6 +268,7 @@
   }
   .ag.sel {
     background: #222836;
+    border-color: #4a6aa5;
   }
   .hora {
     font-size: 15px;
