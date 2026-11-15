@@ -48,7 +48,7 @@
     gap: 12px;
   }
   .icone {
-    color: var(--tag-comercial);
+    color: var(--texto-2);
     display: flex;
   }
   .titulo {

@@ -30,10 +30,13 @@
   import cadeado from "@tabler/icons/outline/lock.svg?raw";
   import aberto from "@tabler/icons/outline/lock-open.svg?raw";
   import ducking from "@tabler/icons/outline/microphone-2.svg?raw";
+  import aovivo from "@tabler/icons/outline/broadcast.svg?raw";
+  import gravar from "@tabler/icons/outline/player-record.svg?raw";
+  import transmitir from "@tabler/icons/outline/world.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
-    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto,
+    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto, aovivo, gravar, transmitir,
   };
   export type NomeIcone = keyof typeof icones;
 </script>

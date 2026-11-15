@@ -1,11 +1,14 @@
 mod agenda;
 mod analise;
 mod biblioteca;
+mod captura;
 mod config;
 mod motor;
 mod ordem;
+mod placas;
+mod sistema;
 
-use agenda::{Agendamento, Rodizio, TipoAgenda};
+use agenda::{Agendamento, ModoLista, Rodizio, TipoAgenda};
 use biblioteca::{Biblioteca, FaixaDto};
 use config::Config;
 use motor::{EventoMotor, Motor};
@@ -21,7 +24,9 @@ const FILA_MAXIMO: usize = 10;
 /// O automático garante este mínimo: quando a fila chega a 3, puxa mais uma.
 const FILA_MINIMO: usize = 3;
 /// Quantos segundos antes do fim a próxima faixa é entregue ao motor.
-const ANTECEDENCIA: f64 = 5.0;
+/// Folga para o motor analisar a música (corte de silêncio e volume, ~3 s) e
+/// misturar com a anterior.
+const ANTECEDENCIA: f64 = 15.0;
 /// Volume da música com o botão de ducking ligado (0.2 = 20%).
 const DUCKING_NIVEL: f64 = 0.2;
 
@@ -70,6 +75,7 @@ struct Previa {
     /// O motor já avisou que começou.
     iniciada: bool,
     inicio: Instant,
+    /// Ponto da música (s) em que começou a tocar: 0 ou onde a pessoa clicou.
     base: f64,
 }
 
@@ -114,6 +120,25 @@ pub struct Estado {
     iniciando_motor: bool,
     erro_motor: Option<String>,
     vigia: Option<RecommendedWatcher>,
+    /// Link ao vivo agendado. Enquanto existe, a fila de músicas espera e
+    /// comercial/hora certa são descartados.
+    link: Option<LinkAtivo>,
+    /// Última vinheta sorteada (para não repetir a mesma em seguida).
+    ultima_vinheta: Option<PathBuf>,
+    /// Muda a cada motor novo: eventos de um motor antigo são ignorados.
+    geracao_motor: u64,
+    /// Gravação e transmissão da entrada (processo separado).
+    captura: Option<captura::Captura>,
+    geracao_captura: u64,
+    /// "desligada", "conectando", "conectado", "caiu" ou "erro …".
+    transmissao_estado: String,
+    erro_captura: Option<String>,
+}
+
+struct LinkAtivo {
+    url: String,
+    /// Já está no ar (antes disso, toca a abertura).
+    ligado: bool,
 }
 
 type Compartilhado = Arc<Mutex<Estado>>;
@@ -144,6 +169,8 @@ struct PreviaDto {
     duracao: Option<f64>,
     decorrido: f64,
     iniciada: bool,
+    /// Segundos até o som chegar à saída (a barra só anda depois disso).
+    espera: f64,
 }
 
 #[derive(Serialize, Clone)]
@@ -158,9 +185,18 @@ struct Retrato {
     /// Pastas do painel "Pastas", em ordem alfabética.
     pastas: Vec<Pasta>,
     tocar_ao_abrir: bool,
+    vinheta_entre_musicas: bool,
     /// Tem senha definida.
     protegido: bool,
     bloqueios: config::Bloqueios,
+    nome_radio: String,
+    audio: config::Audio,
+    gravacao: config::Gravacao,
+    transmissao: config::Transmissao,
+    transmissao_estado: String,
+    erro_captura: Option<String>,
+    /// A gravação está ligada e a captura rodando sem erro.
+    gravando: bool,
     cartucheira: Vec<Option<CartuchoDto>>,
     motor_ok: bool,
     iniciando_motor: bool,
@@ -174,6 +210,8 @@ struct Retrato {
     aguardando: Option<String>,
     repetir_auto: bool,
     proximo_agendamento: Option<agenda::ProximoDto>,
+    /// Endereço do link ao vivo no ar.
+    link: Option<String>,
 }
 
 impl Estado {
@@ -201,8 +239,19 @@ impl Estado {
                 v
             },
             tocar_ao_abrir: self.config.tocar_ao_abrir,
+            vinheta_entre_musicas: self.config.vinheta_entre_musicas,
             protegido: self.config.senha_hash.is_some(),
             bloqueios: self.config.bloqueios.clone(),
+            nome_radio: self.config.nome_radio.clone(),
+            audio: self.config.audio.clone(),
+            gravacao: self.config.gravacao.clone(),
+            transmissao: self.config.transmissao.clone(),
+            transmissao_estado: self.transmissao_estado.clone(),
+            erro_captura: self.erro_captura.clone(),
+            gravando: self.captura.is_some()
+                && self.erro_captura.is_none()
+                && self.config.gravacao.ligada
+                && self.config.gravacao.pasta.is_some(),
             cartucheira: self
                 .config
                 .cartucheira
@@ -223,18 +272,24 @@ impl Estado {
                 Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
             }),
             por_cima: self.por_cima.clone(),
-            aguardando: self.pendentes.first().map(|p| {
-                let pasta = if p.artista.is_empty() { p.titulo.clone() } else { p.artista.clone() };
-                if self.pendentes.len() > 1 { format!("{pasta} ({})", self.pendentes.len()) } else { pasta }
-            }),
+            // A vinheta entre músicas não é "agendamento esperando".
+            aguardando: {
+                let agendados: Vec<&Item> = self.pendentes.iter().filter(|p| p.tipo != Tipo::Vinheta).collect();
+                agendados.first().map(|p| {
+                    let pasta = if p.artista.is_empty() { p.titulo.clone() } else { p.artista.clone() };
+                    if agendados.len() > 1 { format!("{pasta} ({})", agendados.len()) } else { pasta }
+                })
+            },
             repetir_auto: self.repetir_auto,
             proximo_agendamento: agenda::proximo(&self.agenda),
+            link: self.link.as_ref().filter(|l| l.ligado).map(|l| l.url.clone()),
             previa: self.previa.as_ref().map(|p| PreviaDto {
                 caminho: p.caminho.clone(),
                 titulo: p.titulo.clone(),
                 artista: p.artista.clone(),
                 duracao: p.duracao,
-                decorrido: if p.iniciada { p.decorrido() } else { 0.0 },
+                decorrido: if p.iniciada { p.decorrido() } else { p.base },
+                espera: p.inicio.saturating_duration_since(Instant::now()).as_secs_f64(),
                 iniciada: p.iniciada,
             }),
         }
@@ -255,21 +310,80 @@ impl Estado {
         self.pendentes.iter().chain(self.fila.iter()).any(|i| i.travado)
     }
 
+    /// Vinheta sorteada dos botões da cartucheira (sem repetir a última).
+    fn sortear_vinheta(&mut self) -> Option<PathBuf> {
+        use rand::seq::IndexedRandom;
+        let todas: Vec<&PathBuf> = self.config.cartucheira.iter().flatten().filter(|p| p.is_file()).collect();
+        let outras: Vec<&PathBuf> = todas.iter().copied().filter(|p| Some(*p) != self.ultima_vinheta.as_ref()).collect();
+        let escolhida = (*outras.choose(&mut rand::rng()).or_else(|| todas.first())?).clone();
+        self.ultima_vinheta = Some(escolhida.clone());
+        Some(escolhida)
+    }
+
+    /// Entre música e música entra uma vinheta da cartucheira. A vinheta e a
+    /// música seguinte vão juntas ao motor: a música é analisada (corte de
+    /// silêncio e volume) enquanto a vinheta toca.
+    fn entregar_com_vinheta(&mut self) -> bool {
+        let entre_musicas = self.tocando.as_ref().is_some_and(|t| t.item.tipo == Tipo::Musica)
+            && self.fila.first().is_some_and(|i| i.tipo == Tipo::Musica);
+        if !self.config.vinheta_entre_musicas || !entre_musicas || !self.pendentes.is_empty() || self.link.is_some() {
+            return false;
+        }
+        let Some(arq) = self.sortear_vinheta() else { return false };
+        let titulo = arq.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let mut vinheta = self.novo_item(arq.to_string_lossy().into_owned(), "Vinheta".into(), titulo, Tipo::Vinheta);
+        vinheta.duracao = analise::duracao(&arq);
+        let Some(motor) = &self.motor else { return false };
+        if let Err(e) = motor.enfileirar(&vinheta.caminho, false) {
+            self.erro_motor = Some(e);
+            return false;
+        }
+        vinheta.travado = true;
+        self.pendentes.push(vinheta);
+        if let Some(musica) = self.fila.first_mut() {
+            match motor.enfileirar(&musica.caminho, true) {
+                Ok(()) => musica.travado = true,
+                Err(e) => self.erro_motor = Some(e),
+            }
+        }
+        true
+    }
+
     /// Entrega ao motor o próximo: primeiro os agendados pendentes, depois a fila.
     fn enviar_proximo(&mut self) {
         if self.tem_entregue() {
             return;
         }
+        if self.entregar_com_vinheta() {
+            return;
+        }
         let Some(motor) = &self.motor else { return };
         let prox = match self.pendentes.first_mut() {
             Some(p) => Some(p),
+            // Durante o link a fila de músicas espera.
+            None if self.link.is_some() => None,
             None => self.fila.first_mut(),
         };
         if let Some(prox) = prox {
-            match motor.enfileirar(&prox.caminho) {
+            match motor.enfileirar(&prox.caminho, prox.tipo == Tipo::Musica) {
                 Ok(()) => prox.travado = true,
                 Err(e) => self.erro_motor = Some(e),
             }
+        }
+    }
+
+    /// Liga o link quando a abertura acabou (ou não havia abertura).
+    fn ligar_link_se_pronto(&mut self) {
+        if !self.pendentes.is_empty() || self.tem_entregue() {
+            return;
+        }
+        let (Some(link), Some(motor)) = (self.link.as_mut(), &self.motor) else { return };
+        if link.ligado {
+            return;
+        }
+        match motor.link_ligar(&link.url) {
+            Ok(()) => link.ligado = true,
+            Err(e) => self.erro_motor = Some(e),
         }
     }
 
@@ -294,7 +408,8 @@ fn analisar_em_segundo_plano(app: &AppHandle, estado: &Compartilhado, id: u64, c
             .iter_mut()
             .chain(pendentes.iter_mut())
             .find(|i| i.id == id)
-            .or_else(|| tocando.as_mut().map(|t| &mut t.item).filter(|i| i.id == id));
+            // Tocando com o tempo do corte de silêncio: não volta para o do arquivo.
+            .or_else(|| tocando.as_mut().map(|t| &mut t.item).filter(|i| i.id == id && i.duracao.is_none()));
         if let Some(item) = alvo {
             item.duracao = duracao;
         }
@@ -313,18 +428,22 @@ fn completar_fila(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     }
 }
 
-fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
+fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: EventoMotor) {
     let mut e = travar(estado);
+    if geracao != e.geracao_motor {
+        return;
+    }
     match ev {
-        EventoMotor::Faixa(caminho) if caminho.is_empty() => {
+        EventoMotor::Faixa(caminho, _) if caminho.is_empty() => {
             // O motor ficou sem nada: entrega a próxima na hora.
             e.tocando = None;
             if e.no_ar && !e.pausado {
                 completar_fila(app, estado, &mut e);
                 e.enviar_proximo();
+                e.ligar_link_se_pronto();
             }
         }
-        EventoMotor::Faixa(caminho) => {
+        EventoMotor::Faixa(caminho, toca) => {
             let repeticao = e.repeticao_enviada && e.tocando.as_ref().is_some_and(|t| t.item.caminho == caminho);
             e.repeticao_enviada = false;
             let pend = e.pendentes.iter().position(|i| i.travado && i.caminho == caminho);
@@ -340,6 +459,11 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
                     item
                 }
             };
+            let mut item = item;
+            // Música com o silêncio cortado: vale o tempo que vai tocar de fato.
+            if toca.is_some() {
+                item.duracao = toca;
+            }
             e.tocando = Some(Tocando { item, inicio: Instant::now(), pausa_desde: None, pausado_total: Duration::ZERO });
             completar_fila(app, estado, &mut e);
         }
@@ -359,9 +483,10 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
                     e.previa = None;
                 }
             } else if let Some(p) = e.previa.as_mut().filter(|p| p.caminho == caminho) {
+                // Começou (do início ou do ponto clicado, que já está em `base`).
+                // O som chega à saída um pouco depois: a barra espera junto.
                 p.iniciada = true;
-                p.inicio = Instant::now();
-                p.base = 0.0;
+                p.inicio = Instant::now() + Duration::from_secs_f64(motor::ATRASO_SAIDA);
             }
         }
         EventoMotor::Parou(_) if e.motor.is_none() => {
@@ -374,6 +499,7 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, ev: EventoMotor) {
             e.ducking = false;
             e.no_ar = false;
             e.tocando = None;
+            e.link = None;
             e.destravar_tudo();
             let erro = erro.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string();
             e.erro_motor = Some(if erro.is_empty() { "O motor de áudio parou.".into() } else { erro });
@@ -395,12 +521,18 @@ fn iniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     e.iniciando_motor = true;
     e.erro_motor = None;
     emitir(app, e);
-    let (app, estado, dir) = (app.clone(), estado.clone(), e.dir.clone());
+    let (app, estado, dir, audio, geracao) = (app.clone(), estado.clone(), e.dir.clone(), e.config.audio.clone(), e.geracao_motor);
     std::thread::spawn(move || {
         let (app2, estado2) = (app.clone(), estado.clone());
-        let resultado = Motor::iniciar(&exe, &dir, move |ev| ao_evento_motor(&app2, &estado2, ev));
+        let resultado = Motor::iniciar(&exe, &dir, &audio, move |ev| ao_evento_motor(&app2, &estado2, geracao, ev));
         let mut e = travar(&estado);
         e.iniciando_motor = false;
+        if geracao != e.geracao_motor {
+            // A placa mudou enquanto ligava: descarta este e liga outro.
+            drop(resultado);
+            iniciar_motor(&app, &estado, &mut e);
+            return;
+        }
         match resultado {
             Ok(m) => {
                 e.motor = Some(m);
@@ -408,6 +540,7 @@ fn iniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
                 if e.no_ar && !e.pausado && e.tocando.is_none() {
                     completar_fila(&app, &estado, &mut e);
                     e.enviar_proximo();
+                    e.ligar_link_se_pronto();
                 }
             }
             Err(err) => {
@@ -416,6 +549,106 @@ fn iniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
             }
         }
         emitir(&app, &e);
+    });
+}
+
+/// Troca de placa: fecha o motor e liga outro com a placa nova. O que estava
+/// tocando é interrompido e a rádio segue com a próxima da fila.
+fn reiniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    e.geracao_motor += 1;
+    e.motor = None;
+    e.tocando = None;
+    e.previa = None;
+    e.por_cima = None;
+    e.repeticao_enviada = false;
+    e.repetir_auto = false;
+    e.destravar_tudo();
+    if let Some(l) = e.link.as_mut() {
+        l.ligado = false;
+    }
+    iniciar_motor(app, estado, e);
+}
+
+// ---------- gravação e transmissão ----------
+
+/// (Re)liga a captura da entrada com as configurações atuais.
+fn iniciar_captura(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    e.geracao_captura += 1;
+    e.captura = None;
+    e.erro_captura = None;
+    let (g, t) = (&e.config.gravacao, &e.config.transmissao);
+    let grava = g.ligada && g.pasta.is_some();
+    e.transmissao_estado = if t.ligada { "conectando".into() } else { "desligada".into() };
+    if !grava && !t.ligada {
+        return;
+    }
+    let Some(exe) = motor::localizar() else {
+        e.erro_captura = Some("Liquidsoap não encontrado. Instale o pacote liquidsoap.".into());
+        return;
+    };
+    let geracao = e.geracao_captura;
+    let dir = e.dir.clone();
+    let (audio, g, t, nome) = (e.config.audio.clone(), g.clone(), t.clone(), e.config.nome_radio.clone());
+    let (app, estado) = (app.clone(), estado.clone());
+    // Em segundo plano: no Mac, achar a placa leva um segundo.
+    std::thread::spawn(move || {
+        let log = dir.join("captura.log").to_string_lossy().into_owned();
+        let script = captura::script(&log, &audio, &g, &t, &nome);
+        let (app2, estado2) = (app.clone(), estado.clone());
+        let resultado = captura::Captura::iniciar(&exe, &dir, script, move |ev| ao_evento_captura(&app2, &estado2, geracao, ev));
+        let mut e = travar(&estado);
+        if geracao != e.geracao_captura {
+            return;
+        }
+        match resultado {
+            Ok(c) => e.captura = Some(c),
+            Err(err) => e.erro_captura = Some(err),
+        }
+        emitir(&app, &e);
+    });
+}
+
+fn ao_evento_captura(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: captura::EventoCaptura) {
+    use captura::EventoCaptura as Ev;
+    let mut e = travar(estado);
+    if geracao != e.geracao_captura {
+        return;
+    }
+    match ev {
+        Ev::Transmissao(t) => {
+            e.transmissao_estado = match t.strip_prefix("erro") {
+                Some(bruto) => format!("erro: {}", captura::erro_legivel(bruto)),
+                None => t,
+            }
+        }
+        Ev::Gravacao(erro) => e.erro_captura = Some(format!("Gravação: {erro}")),
+        Ev::Parou(erro) => {
+            e.captura = None;
+            let erro = if erro.is_empty() { "a captura da entrada parou".to_string() } else { erro };
+            e.erro_captura = Some(format!("{erro} (tentando de novo…)"));
+            // Tenta de novo em 5 s, se nada mudou nesse meio tempo.
+            let (app, estado) = (app.clone(), estado.clone());
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(5));
+                let mut e = travar(&estado);
+                if geracao == e.geracao_captura {
+                    iniciar_captura(&app, &estado, &mut e);
+                    emitir(&app, &e);
+                }
+            });
+        }
+    }
+    emitir(app, &e);
+}
+
+/// Uma vez por hora, apaga as pastas de gravação com mais de 30 dias.
+fn iniciar_limpeza_gravacoes(estado: Compartilhado) {
+    std::thread::spawn(move || loop {
+        let pasta = travar(&estado).config.gravacao.pasta.clone();
+        if let Some(p) = pasta {
+            captura::apagar_antigas(&p, chrono::Local::now().date_naive());
+        }
+        std::thread::sleep(Duration::from_secs(3600));
     });
 }
 
@@ -431,12 +664,12 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
         if !falta.is_some_and(|f| f <= ANTECEDENCIA) {
             continue;
         }
-        if e.repetir || e.repetir_auto {
+        if e.link.is_none() && (e.repetir || e.repetir_auto) {
             // Repetir: entrega de novo a mesma música, a fila espera.
             if !e.repeticao_enviada {
-                let atual = e.tocando.as_ref().map(|t| t.item.caminho.clone());
-                if let (Some(m), Some(c)) = (&e.motor, atual) {
-                    if m.enfileirar(&c).is_ok() {
+                let atual = e.tocando.as_ref().map(|t| (t.item.caminho.clone(), t.item.tipo == Tipo::Musica));
+                if let (Some(m), Some((c, musica))) = (&e.motor, atual) {
+                    if m.enfileirar(&c, musica).is_ok() {
                         e.repeticao_enviada = true;
                         emitir(&app, &e);
                     }
@@ -492,9 +725,29 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
             if let Some(p) = ag.pastas.first() {
                 e.lista_ativa = Some(p.caminho.clone());
             }
+            // Limpa a fila e põe músicas novas da pasta. Comercial e hora certa
+            // tocando não levam fade (agendamento não se corta).
+            let agendado = e.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta));
+            let fade = e.no_ar && ag.modo_lista == ModoLista::Fade && e.link.is_none() && !agendado && e.tocando.is_some();
+            if fade {
+                e.fila.clear();
+            } else {
+                // O que já foi entregue ao motor (últimos segundos da música) fica.
+                e.fila.retain(|i| i.travado);
+            }
+            completar_fila(app, estado, e);
+            if e.link.is_some() {
+                encerrar_link(app, estado, e);
+            } else if fade {
+                e.repetir_auto = false;
+                fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 });
+            }
         }
-        // Comerciais e hora certa só quando a rádio está no ar.
+        // O resto só quando a rádio está no ar.
         _ if !e.no_ar => {}
+        TipoAgenda::Link => iniciar_link(app, estado, e, ag),
+        // Durante o link, comercial e hora certa são descartados.
+        _ if e.link.is_some() => {}
         TipoAgenda::Comercial => {
             let dir = e.dir.clone();
             let bloco = agenda::montar_bloco(ag, &mut e.rodizio, &dir);
@@ -518,11 +771,78 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
             }
         }
         TipoAgenda::HoraCerta => {
-            let agora = chrono::Local::now().time();
-            let arquivo = ag.pastas.first().and_then(|p| agenda::arquivo_hora_certa(Path::new(&p.caminho), agora));
-            agendar_em_sequencia(app, estado, e, arquivo.into_iter().collect(), Tipo::HoraCerta);
+            // Espera a música acabar: a hora falada é a do fim da música (e do
+            // que já estiver esperando antes), não a de agora.
+            let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido())).unwrap_or(0.0);
+            let antes: f64 = e.pendentes.iter().filter_map(|i| i.duracao).sum();
+            let espera = (falta.max(0.0) + antes) * 1000.0;
+            let inicio = (chrono::Local::now() + chrono::Duration::milliseconds(espera as i64)).time();
+            let dir = e.dir.clone();
+            let (hora_certa, comercial) = agenda::montar_hora_certa(ag, inicio, &mut e.rodizio, &dir);
+            agendar_em_sequencia(app, estado, e, hora_certa, Tipo::HoraCerta);
+            agendar_em_sequencia(app, estado, e, comercial.into_iter().collect(), Tipo::Comercial);
         }
     }
+}
+
+/// Entra o link: fade na música, abertura (se tiver) e o link.
+fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agendamento) {
+    let Some(url) = ag.url.clone() else { return };
+    // Outro link no ar: sai sem fade e entra o novo.
+    if e.link.take().is_some_and(|l| l.ligado) {
+        if let Some(m) = &e.motor {
+            let _ = m.link_desligar();
+        }
+    }
+    // Comercial e hora certa que esperavam a música acabar ficam de fora.
+    e.pendentes.clear();
+    e.repetir_auto = false;
+    e.repeticao_enviada = false;
+    let dir = e.dir.clone();
+    if let Some(abertura) = ag.abertura.as_deref().and_then(|p| agenda::um_da_pasta(p, &mut e.rodizio, &dir)) {
+        agendar_em_sequencia(app, estado, e, vec![abertura], Tipo::Vinheta);
+    }
+    e.link = Some(LinkAtivo { url, ligado: false });
+    if e.tocando.is_some() {
+        // Quando o fade acabar, o motor fica sem nada e o evento de silêncio
+        // entrega a abertura ou liga o link.
+        fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 });
+    } else {
+        e.enviar_proximo();
+        e.ligar_link_se_pronto();
+    }
+}
+
+/// Tira o link do ar com fade de 3 s e a fila de músicas volta.
+fn encerrar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    let Some(link) = e.link.take() else { return };
+    if !link.ligado {
+        // Ainda na abertura: quando ela acabar, a fila segue normalmente.
+        e.pendentes.retain(|i| i.travado);
+        return;
+    }
+    let (app, estado) = (app.clone(), estado.clone());
+    std::thread::spawn(move || {
+        const PASSOS: u32 = 15;
+        for i in 1..=PASSOS {
+            std::thread::sleep(Duration::from_millis(200));
+            let e = travar(&estado);
+            if let Some(m) = &e.motor {
+                let _ = m.link_volume(1.0 - f64::from(i) / f64::from(PASSOS));
+            }
+        }
+        let mut e = travar(&estado);
+        if let Some(m) = &e.motor {
+            let _ = m.link_desligar();
+            let _ = m.link_volume(1.0);
+        }
+        // Um novo link pode ter entrado durante o fade.
+        if e.link.is_none() && e.no_ar && !e.pausado && e.tocando.is_none() {
+            completar_fila(&app, &estado, &mut e);
+            e.enviar_proximo();
+        }
+        emitir(&app, &e);
+    });
 }
 
 /// Confere a agenda a cada segundo e dispara o que vence em cada minuto novo.
@@ -558,16 +878,11 @@ fn agendamentos(estado: State<Compartilhado>) -> Vec<Agendamento> {
 
 #[tauri::command]
 fn agendamento_salvar(app: AppHandle, estado: State<Compartilhado>, mut ag: Agendamento) -> Result<Vec<Agendamento>, String> {
-    if ag.hora_minuto().is_none() {
-        return Err("Horário inválido.".into());
-    }
-    if !ag.dias.iter().any(|d| *d) {
-        return Err("Marque pelo menos um dia.".into());
-    }
-    if ag.pastas.is_empty() {
-        return Err("Escolha pelo menos uma pasta.".into());
-    }
+    ag.validar()?;
     let mut e = travar(&estado);
+    if let Some(msg) = agenda::conflito(&e.agenda, &ag) {
+        return Err(msg);
+    }
     if ag.id == 0 {
         ag.id = e.agenda.iter().map(|a| a.id).max().unwrap_or(0) + 1;
         e.agenda.push(ag);
@@ -705,6 +1020,73 @@ fn pasta_adicionar(app: AppHandle, estado: State<Compartilhado>, caminho: String
 fn pasta_remover(app: AppHandle, estado: State<Compartilhado>, caminho: String) -> Result<(), String> {
     let mut e = travar(&estado);
     e.config.pastas.retain(|p| p != Path::new(&caminho));
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn nome_radio_definir(app: AppHandle, estado: State<Compartilhado>, nome: String) -> Result<(), String> {
+    let mut e = travar(&estado);
+    let nome = nome.trim();
+    e.config.nome_radio = if nome.is_empty() { "Radio On Air".into() } else { nome.into() };
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    // O nome também vai na transmissão.
+    if e.config.transmissao.ligada {
+        iniciar_captura(&app, estado.inner(), &mut e);
+    }
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+async fn placas() -> placas::Placas {
+    tauri::async_runtime::spawn_blocking(placas::listar).await.unwrap_or_default()
+}
+
+#[tauri::command]
+fn audio_definir(app: AppHandle, estado: State<Compartilhado>, audio: config::Audio) -> Result<(), String> {
+    let compartilhado = estado.inner().clone();
+    let mut e = travar(&compartilhado);
+    let antes = std::mem::replace(&mut e.config.audio, audio);
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    let novo = e.config.audio.clone();
+    if antes.saida != novo.saida || antes.pre_escuta != novo.pre_escuta {
+        reiniciar_motor(&app, &compartilhado, &mut e);
+    }
+    if antes.entrada != novo.entrada {
+        iniciar_captura(&app, &compartilhado, &mut e);
+    }
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn gravacao_definir(app: AppHandle, estado: State<Compartilhado>, mut gravacao: config::Gravacao) -> Result<(), String> {
+    gravacao.validar()?;
+    let mut e = travar(&estado);
+    e.config.gravacao = gravacao;
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    iniciar_captura(&app, estado.inner(), &mut e);
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn transmissao_definir(app: AppHandle, estado: State<Compartilhado>, mut transmissao: config::Transmissao) -> Result<(), String> {
+    transmissao.validar()?;
+    let mut e = travar(&estado);
+    e.config.transmissao = transmissao;
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    iniciar_captura(&app, estado.inner(), &mut e);
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn definir_vinheta_entre_musicas(app: AppHandle, estado: State<Compartilhado>, valor: bool) -> Result<(), String> {
+    let mut e = travar(&estado);
+    e.config.vinheta_entre_musicas = valor;
     e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
     emitir(&app, &e);
     Ok(())
@@ -878,8 +1260,12 @@ fn parar(app: AppHandle, estado: State<Compartilhado>) {
     if let Some(m) = &e.motor {
         let _ = m.pausar();
         let _ = m.pular();
+        if e.link.is_some() {
+            let _ = m.link_desligar();
+        }
         e.saida_parada = true;
     }
+    e.link = None;
     e.tocando = None;
     emitir(&app, &e);
 }
@@ -891,11 +1277,16 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
     if !e.no_ar {
         return;
     }
-    // Agendamento não se pula: comercial e hora certa tocam até o fim.
+    // Agendamento não se pula: comercial, hora certa e link tocam até o fim.
+    if e.link.is_some() {
+        return;
+    }
     if e.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta)) {
         return;
     }
     completar_fila(&app, &compartilhado, &mut e);
+    // Passar vai direto para a próxima música, sem a vinheta entre elas.
+    e.pendentes.retain(|i| i.tipo != Tipo::Vinheta);
     // Tira do motor o que já tinha sido entregue (inclusive uma repetição);
     // o motor fica sem nada e o evento de silêncio entrega a próxima da fila.
     if let Some(m) = &e.motor {
@@ -984,16 +1375,20 @@ fn previa_parar(app: AppHandle, estado: State<Compartilhado>) {
     emitir(&app, &e);
 }
 
-/// Pula a pré-escuta para `segundos` a partir do início.
+/// Pula a pré-escuta para `segundos` a partir do início (para frente ou para trás).
 #[tauri::command]
 fn previa_ir(app: AppHandle, estado: State<Compartilhado>, segundos: f64) {
     let mut e = travar(&estado);
     let Estado { motor, previa, .. } = &mut *e;
-    if let (Some(m), Some(p)) = (motor.as_ref(), previa.as_mut().filter(|p| p.iniciada)) {
-        let alvo = segundos.clamp(0.0, p.duracao.unwrap_or(f64::MAX));
-        if m.previa_andar(alvo - p.decorrido()).is_ok() {
-            p.base = alvo;
-            p.inicio = Instant::now();
+    if let (Some(m), Some(p)) = (motor.as_ref(), previa.as_mut()) {
+        let fim = p.duracao.map_or(f64::MAX, |d| (d - 1.0).max(0.0));
+        let alvo = segundos.clamp(0.0, fim);
+        // Até o motor avisar que recomeçou, a tela fica parada no ponto clicado
+        // (e o aviso de "acabou" da faixa antiga é ignorado).
+        p.iniciada = false;
+        p.base = alvo;
+        if m.previa_ir(&p.caminho, alvo).is_err() {
+            p.iniciada = true;
         }
     }
     emitir(&app, &e);
@@ -1056,6 +1451,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir().expect("pasta de dados");
+            // No Windows o Liquidsoap vem dentro do instalador.
+            if let Ok(recursos) = app.path().resource_dir() {
+                motor::usar_embutido(&recursos);
+            }
             let config = Config::carregar(&dir);
             let agenda = agenda::carregar(&dir);
             let rodizio = Rodizio::carregar(&dir);
@@ -1085,13 +1484,22 @@ pub fn run() {
                 iniciando_motor: false,
                 erro_motor: None,
                 vigia: None,
+                link: None,
+                ultima_vinheta: None,
+                geracao_motor: 0,
+                captura: None,
+                geracao_captura: 0,
+                transmissao_estado: "desligada".into(),
+                erro_captura: None,
             }));
             app.manage(estado.clone());
             let handle = app.handle().clone();
             iniciar_motor(&handle, &estado, &mut travar(&estado));
             carregar_biblioteca(handle.clone(), estado.clone(), false);
             iniciar_relogio(handle.clone(), estado.clone());
-            iniciar_relogio_agenda(handle, estado.clone());
+            iniciar_relogio_agenda(handle.clone(), estado.clone());
+            iniciar_captura(&handle, &estado, &mut travar(&estado));
+            iniciar_limpeza_gravacoes(estado.clone());
             iniciar_gravador_indice(estado);
             Ok(())
         })
@@ -1125,6 +1533,12 @@ pub fn run() {
             agendamentos,
             agendamento_salvar,
             agendamento_remover,
+            nome_radio_definir,
+            definir_vinheta_entre_musicas,
+            placas,
+            audio_definir,
+            gravacao_definir,
+            transmissao_definir,
         ])
         .run(tauri::generate_context!())
         .expect("erro ao abrir o Radio On Air");

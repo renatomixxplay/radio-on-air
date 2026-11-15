@@ -3,17 +3,23 @@
 //! O programa é quem manda: ele guarda a fila e entrega ao Liquidsoap uma faixa
 //! por vez, poucos segundos antes da atual acabar. O Liquidsoap avisa pelo stdout
 //! (`@@FAIXA <arquivo>`) quando uma faixa começa a tocar.
+//!
+//! Músicas entram com `autocue:`: o Liquidsoap corta o silêncio do começo e do
+//! fim, iguala o volume e mistura 1 s com a próxima música. O resto (comercial,
+//! vinheta, hora certa, cartucheira) entra com `volume:`: só iguala o volume e
+//! toca inteiro, sem mistura.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub enum EventoMotor {
     /// Uma faixa começou. Caminho vazio = a fila do motor ficou sem nada (silêncio).
-    Faixa(String),
+    /// O número é a duração que vai tocar de fato (música com o silêncio cortado).
+    Faixa(String, Option<f64>),
     /// A pré-escuta começou um arquivo (vazio = terminou).
     Previa(String),
     /// Um comercial por cima (ducking) começou.
@@ -27,13 +33,38 @@ pub struct Motor {
     porta: u16,
 }
 
+/// Lê `<arquivo>\t<cue_in>\t<cue_out>`: devolve o arquivo e quanto vai tocar.
+fn ler_faixa(resto: &str) -> (String, Option<f64>) {
+    let mut partes = resto.trim().split('\t');
+    let arq = partes.next().unwrap_or("").trim().to_string();
+    let num = |p: Option<&str>| p.and_then(|v| v.trim().parse::<f64>().ok());
+    let (ini, fim) = (num(partes.next()), num(partes.next()));
+    let toca = fim.map(|f| f - ini.unwrap_or(0.0)).filter(|d| *d > 0.0);
+    (arq, toca)
+}
+
+/// Liquidsoap que veio junto no instalador (Windows), se houver.
+static EMBUTIDO: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Registra o Liquidsoap que veio dentro do programa (pasta de recursos).
+pub fn usar_embutido(pasta_recursos: &Path) {
+    let exe = pasta_recursos.join("liquidsoap").join(if cfg!(windows) { "liquidsoap.exe" } else { "liquidsoap" });
+    if exe.is_file() {
+        let _ = EMBUTIDO.set(exe);
+    }
+}
+
 /// Procura o executável do Liquidsoap.
 pub fn localizar() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("RADIO_LIQUIDSOAP") {
         return Some(PathBuf::from(p));
     }
+    if let Some(p) = EMBUTIDO.get() {
+        return Some(p.clone());
+    }
+    let nome = if cfg!(windows) { "liquidsoap.exe" } else { "liquidsoap" };
     let mut candidatos: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).map(|d| d.join("liquidsoap")).collect())
+        .map(|p| std::env::split_paths(&p).map(|d| d.join(nome)).collect())
         .unwrap_or_default();
     if let Some(home) = std::env::var_os("HOME") {
         // Instalação isolada via opam (usada para desenvolver no Mac).
@@ -51,24 +82,57 @@ fn porta_livre() -> u16 {
         .unwrap_or(14_321)
 }
 
-/// Linha de saída de som de cada sistema.
-fn saida(id: &str, fonte: &str) -> String {
+/// Quanto o som sai depois do que o motor está tocando (a folga da saída no Mac).
+pub const ATRASO_SAIDA: f64 = if cfg!(any(target_os = "macos", windows)) { 1.0 } else { 0.0 };
+
+/// Linha de saída de som de cada sistema. `placa` = nome do dispositivo
+/// (`None` = o padrão do sistema).
+fn saida(id: &str, fonte: &str, placa: Option<&str>) -> String {
     if cfg!(target_os = "macos") {
+        let indice = placa
+            .and_then(|p| crate::placas::mac_indice(&crate::placas::mac_saidas(), p))
+            .map(|i| format!("audio_device_index={i}, "))
+            .unwrap_or_default();
         // A saída do macOS tem pouca folga: qualquer tranco do sistema (abrir um app,
         // disco, memória) virava uma travadinha. O buffer guarda ~1 s de áudio pronto.
         // (O buffer "adaptativo" foi descartado: ele muda a velocidade do som para
         // acompanhar a placa, e isso se ouvia como acelerar/desacelerar.)
         format!(
-            r#"output.url(id="{id}", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", %audio(codec="pcm_f32le")), buffer(fallible=true, buffer=1., max=10., {fonte}))"#
+            r#"output.url(id="{id}", fallible=true, self_sync=true, url="default", %ffmpeg(format="audiotoolbox", {indice}%audio(codec="pcm_f32le")), buffer(fallible=true, buffer=1., max=10., {fonte}))"#
+        )
+    } else if cfg!(windows) {
+        // Windows: PortAudio, placa escolhida pelo nome (só se ela estiver ligada,
+        // senão o motor nem abriria). Mesma folga de 1 s do Mac contra travadinhas.
+        let device = placa
+            .filter(|p| crate::placas::listar().saidas.iter().any(|s| s.id == *p))
+            .map(|p| format!("device_name={p:?}, "))
+            .unwrap_or_default();
+        format!(
+            r#"output.portaudio(id="{id}", fallible=true, buflen=2048, {device}buffer(fallible=true, buffer=1., max=10., {fonte}))"#
         )
     } else {
-        format!(r#"output.pulseaudio(id="{id}", fallible=true, {fonte})"#)
+        let device = placa.map(|p| format!("device={p:?}, ")).unwrap_or_default();
+        format!(r#"output.pulseaudio(id="{id}", fallible=true, {device}{fonte})"#)
     }
 }
 
-fn script(porta: u16, log: &str) -> String {
+/// Tamanho, em segundos, do pedaço de áudio que o Liquidsoap processa por vez.
+fn quadro() -> f64 {
+    // No Windows vale a mesma folga do Mac (a placa também é atendida por pedaços).
+    if cfg!(any(target_os = "macos", windows)) {
+        // A saída de som do macOS (ffmpeg/audiotoolbox) guarda só DOIS pedaços na
+        // placa. Com o padrão (0,04 s) isso dá ~80 ms de folga: abrir o navegador
+        // ou outro programa já fazia o som "raspar". Com 0,2 s a folga vai a ~0,4 s.
+        0.2
+    } else {
+        0.04
+    }
+}
+
+fn script(porta: u16, log: &str, audio: &crate::config::Audio) -> String {
     format!(
         r#"
+settings.frame.duration.set({quadro:.2})
 settings.log.stdout.set(false)
 settings.log.level.set(2)
 settings.log.file.set(true)
@@ -79,29 +143,77 @@ settings.server.telnet.bind_addr.set("127.0.0.1")
 settings.server.telnet.port.set({porta})
 
 # Ar: fila de músicas (com volume controlável para o ducking) + cartucheira por cima.
-fila = request.queue(id="fila")
-cart = request.queue(id="cart")
+# Músicas (autocue): corta o silêncio do começo/fim, iguala o volume e mistura
+# no máximo 1 s com a próxima música.
+settings.autocue.internal.max_overlap.set(1.)
+# Protocolo "volume:": mede o arquivo e só iguala o volume (sem cortar nada).
+def protocolo_volume(~rlog:_, ~maxtime:_, arq) =
+  medidas = file.autocue.metadata(request_metadata=[], arq)
+  amp = medidas["liq_amplify"]
+  if amp == "" then arq else "annotate:liq_amplify=#{{string.quote(amp)}}:#{{arq}}" end
+end
+protocol.add("volume", protocolo_volume, doc="Só iguala o volume", syntax="volume:arquivo")
+fila_q = request.queue(id="fila")
+cart = amplify(override="liq_amplify", 1., request.queue(id="cart"))
+# Só mistura quando as duas faixas são músicas analisadas; o resto toca em sequência.
+def transicao(a, b) =
+  if a.metadata["liq_autocue"] != "" and b.metadata["liq_autocue"] != "" then
+    cross.simple(fade_in=0., fade_out=1., initial_fade_in_metadata=b.metadata, initial_fade_out_metadata=a.metadata, a.source, b.source)
+  else
+    sequence([a.source, b.source])
+  end
+end
+# O volume de cada faixa é aplicado ANTES da emenda: depois dela, o último
+# pedaço da faixa perde o ajuste e tocava no volume original (mais alto).
+fila = cross(duration=1., transicao, amplify(override="liq_amplify", 1., fila_q))
 musica = fallback(id="musica", track_sensitive=false, [fila, blank(id="silencio")])
-musica.on_track(synchronous=true, fun (m) -> print("@@FAIXA #{{m['filename']}}"))
+# A troca de faixa sem mistura gera uma "faixa vazia" de passagem com a fila
+# pronta: só avisa silêncio quando a fila acabou de verdade.
+musica.on_track(synchronous=true, fun (m) ->
+  if m["filename"] != "" then
+    print("@@FAIXA #{{m['filename']}}\t#{{m['liq_cue_in']}}\t#{{m['liq_cue_out']}}")
+  elsif not fila.is_ready() then
+    print("@@FAIXA ")
+  end)
 # Comercial com ducking: toca por cima. A música abaixa para 20% enquanto há voz
 # (e até 1,5 s depois, para não subir entre um arquivo e outro) e volta suave.
 fala = request.queue(id="fala")
+fala = amplify(override="liq_amplify", 1., fala)
 fala = rms(duration=0.2, fala)
 fala_ar = fallback(track_sensitive=false, [fala, blank()])
 fala_ar.on_track(synchronous=true, fun (m) -> print("@@FALA #{{m['filename']}}"))
 ultima_voz = ref(-100.)
 ganho_fala = ref(1.)
+# Suavização por pedaço de áudio: mesma velocidade qualquer que seja o tamanho
+# do pedaço (0,15 por pedaço de 0,04 s).
+suave = {suave:.4}
 def ganho() =
   if fala.is_ready() and fala.rms() > 0.02 then
     ultima_voz := time()
   end
   alvo = if time() - ultima_voz() < 1.5 then 0.2 else 1. end
-  ganho_fala := ganho_fala() + (alvo - ganho_fala()) * 0.15
+  ganho_fala := ganho_fala() + (alvo - ganho_fala()) * suave
   ganho_fala()
 end
 vol = interactive.float("vol", 1.0)
-musica = amplify(fun () -> ganho() * vol(), musica)
-radio = add(normalize=false, [musica, fala_ar, cart])
+musica = amplify(override=null, fun () -> ganho() * vol(), musica)
+
+# Link ao vivo (MP3/AAC/HLS). Fica desligado até o programa mandar ligar.
+# Se cair, tenta de novo sozinho; enquanto isso, silêncio.
+aovivo = input.http(id="aovivo_in", start=false, self_sync=false, poll_delay=3., "")
+server.register(namespace="aovivo", description="Liga o link", "ligar", fun (u) -> begin
+  aovivo.set_url(u)
+  aovivo.start()
+  "OK"
+end)
+server.register(namespace="aovivo", description="Desliga o link", "desligar", fun (_) -> begin
+  aovivo.stop()
+  "OK"
+end)
+vol_link = interactive.float("vol_link", 1.0)
+link_ar = fallback(track_sensitive=false, [amplify(override=null, vol_link, aovivo), blank()])
+
+radio = add(normalize=false, [musica, link_ar, fala_ar, cart])
 {saida_ar}
 
 # Pré-escuta: saída separada, não mexe no que está no ar.
@@ -110,8 +222,10 @@ previa = fallback(id="previa", track_sensitive=false, [pre, blank()])
 previa.on_track(synchronous=true, fun (m) -> print("@@PRE #{{m['filename']}}"))
 {saida_pre}
 "#,
-        saida_ar = saida("saida", "radio"),
-        saida_pre = saida("preescuta", "previa"),
+        quadro = quadro(),
+        suave = 1.0 - 0.85_f64.powf(quadro() / 0.04),
+        saida_ar = saida("saida", "radio", audio.saida.as_deref()),
+        saida_pre = saida("preescuta", "previa", audio.pre_escuta.as_deref()),
     )
 }
 
@@ -119,24 +233,20 @@ impl Motor {
     pub fn iniciar(
         exe: &Path,
         dir_dados: &Path,
+        audio: &crate::config::Audio,
         ao_evento: impl Fn(EventoMotor) + Send + 'static,
     ) -> Result<Self, String> {
         let porta = porta_livre();
         std::fs::create_dir_all(dir_dados).map_err(|e| e.to_string())?;
         let arquivo = dir_dados.join("motor.liq");
         let log = dir_dados.join("motor.log").to_string_lossy().into_owned();
-        std::fs::write(&arquivo, script(porta, &log)).map_err(|e| e.to_string())?;
+        std::fs::write(&arquivo, script(porta, &log, audio)).map_err(|e| e.to_string())?;
 
         // Se o programa fechou de mau jeito antes, o motor antigo pode ter ficado vivo.
         let arquivo_pid = dir_dados.join("motor.pid");
-        if let Some(pid) = std::fs::read_to_string(&arquivo_pid).ok().and_then(|p| p.trim().parse::<u32>().ok()) {
-            let cmd = Command::new("ps").args(["-p", &pid.to_string(), "-o", "command="]).output();
-            if cmd.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("motor.liq")) {
-                let _ = Command::new("kill").arg(pid.to_string()).status();
-            }
-        }
+        crate::sistema::fechar_antigo(&arquivo_pid, "motor.liq");
 
-        let mut processo = Command::new(exe)
+        let mut processo = crate::sistema::comando(exe)
             .arg(&arquivo)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -158,8 +268,9 @@ impl Motor {
         });
         std::thread::spawn(move || {
             for linha in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if let Some(arq) = linha.strip_prefix("@@FAIXA ") {
-                    ao_evento(EventoMotor::Faixa(arq.trim().to_string()));
+                if let Some(resto) = linha.strip_prefix("@@FAIXA") {
+                    let (arq, toca) = ler_faixa(resto);
+                    ao_evento(EventoMotor::Faixa(arq, toca));
                 } else if let Some(arq) = linha.strip_prefix("@@FALA") {
                     ao_evento(EventoMotor::Fala(arq.trim().to_string()));
                 } else if let Some(arq) = linha.strip_prefix("@@PRE") {
@@ -203,8 +314,11 @@ impl Motor {
         Ok(resp)
     }
 
-    pub fn enfileirar(&self, caminho: &str) -> Result<(), String> {
-        self.comando(&format!("fila.push {caminho}")).map(|_| ())
+    /// Entrega uma faixa ao ar. Música vai com `autocue:` (corte de silêncio,
+    /// volume igual e mistura); o resto com `volume:` (só volume igual).
+    pub fn enfileirar(&self, caminho: &str, musica: bool) -> Result<(), String> {
+        let prefixo = if musica { "autocue:" } else { "volume:" };
+        self.comando(&format!("fila.push {prefixo}{caminho}")).map(|_| ())
     }
 
     pub fn pular(&self) -> Result<(), String> {
@@ -221,6 +335,20 @@ impl Motor {
         self.comando(&format!("var.set vol = {v:.3}")).map(|_| ())
     }
 
+    /// Liga o link ao vivo (tenta reconectar sozinho se cair).
+    pub fn link_ligar(&self, url: &str) -> Result<(), String> {
+        self.comando(&format!("aovivo.ligar {}", url.trim())).map(|_| ())
+    }
+
+    pub fn link_desligar(&self) -> Result<(), String> {
+        self.comando("aovivo.desligar x").map(|_| ())
+    }
+
+    /// Volume do link (1.0 = normal), para o fade de saída.
+    pub fn link_volume(&self, v: f64) -> Result<(), String> {
+        self.comando(&format!("var.set vol_link = {v:.3}")).map(|_| ())
+    }
+
     pub fn previa_tocar(&self, caminho: &str) -> Result<(), String> {
         self.comando("pre.flush_and_skip")?;
         self.comando(&format!("pre.push {caminho}")).map(|_| ())
@@ -230,21 +358,24 @@ impl Motor {
         self.comando("pre.flush_and_skip").map(|_| ())
     }
 
-    /// Anda `delta` segundos na pré-escuta (negativo volta).
-    pub fn previa_andar(&self, delta: f64) -> Result<(), String> {
-        self.comando(&format!("preescuta.seek {delta:.2}")).map(|_| ())
+    /// Recomeça a pré-escuta a partir de `segundos`. Pular pela saída não
+    /// funciona (no Mac ela tem uma folga de 1 s e só anda dentro dela) e o pulo
+    /// do Liquidsoap não volta para trás: recomeçar no ponto vale para os dois lados.
+    pub fn previa_ir(&self, caminho: &str, segundos: f64) -> Result<(), String> {
+        self.comando("pre.flush_and_skip")?;
+        self.comando(&format!("pre.push annotate:liq_cue_in=\"{segundos:.2}\":{caminho}")).map(|_| ())
     }
 
     /// Toca arquivos por cima da música, em sequência (comercial com ducking).
     pub fn falar(&self, caminhos: &[String]) -> Result<(), String> {
         for c in caminhos {
-            self.comando(&format!("fala.push {c}"))?;
+            self.comando(&format!("fala.push volume:{c}"))?;
         }
         Ok(())
     }
 
     pub fn cartucho(&self, caminho: &str) -> Result<(), String> {
-        self.comando(&format!("cart.push {caminho}")).map(|_| ())
+        self.comando(&format!("cart.push volume:{caminho}")).map(|_| ())
     }
 
     pub fn pausar(&self) -> Result<(), String> {
@@ -260,5 +391,28 @@ impl Drop for Motor {
     fn drop(&mut self) {
         let _ = self.processo.kill();
         let _ = self.processo.wait();
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    #[test]
+    fn le_faixa_com_e_sem_corte() {
+        assert_eq!(super::ler_faixa(" /m/a.mp3\t1.6\t150.5"), ("/m/a.mp3".into(), Some(148.9)));
+        assert_eq!(super::ler_faixa(" /m/comercial.mp3\t\t"), ("/m/comercial.mp3".into(), None));
+        assert_eq!(super::ler_faixa(" "), ("".into(), None));
+    }
+
+    /// O script do motor precisa ser aceito pelo Liquidsoap instalado.
+    #[test]
+    fn script_do_motor_e_valido() {
+        let Some(exe) = super::localizar() else { return };
+        let dir = std::env::temp_dir().join(format!("radio-motor-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let arq = dir.join("teste.liq");
+        std::fs::write(&arq, super::script(1, &dir.join("log").to_string_lossy(), &Default::default())).unwrap();
+        let saida = std::process::Command::new(exe).arg("--check").arg(&arq).output().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(saida.status.success(), "{}{}", String::from_utf8_lossy(&saida.stdout), String::from_utf8_lossy(&saida.stderr));
     }
 }

@@ -51,11 +51,6 @@
   <div class="rotulo">
     <Icone nome="music" tamanho={14} />Músicas
     <span class="total">{carregando ? "lendo pastas…" : total.toLocaleString("pt-BR")}</span>
-    {#if pasta}
-      <button class="trocar" onclick={escolherPasta} title={`Pasta: ${pasta}\nClique para trocar`} aria-label="Trocar pasta de músicas">
-        <Icone nome="folderOpen" tamanho={14} />
-      </button>
-    {/if}
   </div>
 
   {#if !pasta}
@@ -119,7 +114,9 @@
     cursor: pointer;
     background: #172033;
   }
+  /* Desliza entre as atualizações do tempo (a cada 0,5 s). */
   .mini {
+    transition: width 0.5s linear;
     position: absolute;
     left: 0;
     bottom: 0;
@@ -131,16 +128,6 @@
     margin-left: auto;
     font-variant-numeric: tabular-nums;
     font-size: 13px;
-  }
-  .trocar {
-    border: none;
-    background: transparent;
-    padding: 0 2px;
-    display: flex;
-    color: var(--texto-3);
-  }
-  .trocar:hover {
-    color: var(--texto);
   }
   .busca {
     display: flex;

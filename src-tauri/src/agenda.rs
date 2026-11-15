@@ -5,6 +5,7 @@
 //! - **Comercial**: espera a música acabar e toca as pastas anexadas.
 //! - **Comercial com ducking**: entra por cima da música (que abaixa quando há voz).
 //! - **Hora certa**: toca o arquivo da hora atual.
+//! - **Link**: entra um link ao vivo (MP3/AAC) até a próxima lista ou link.
 
 use crate::biblioteca::eh_audio;
 use crate::ordem;
@@ -21,6 +22,19 @@ pub enum TipoAgenda {
     Comercial,
     Ducking,
     HoraCerta,
+    Link,
+}
+
+/// Como a lista de músicas entra. Nos dois casos a fila é limpa e recebe
+/// músicas novas da pasta.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModoLista {
+    /// A música atual termina normalmente.
+    #[default]
+    DepoisDesta,
+    /// Fade de 3 s na música atual e a lista já começa.
+    Fade,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -44,8 +58,28 @@ pub struct Agendamento {
     /// Segunda a domingo.
     pub dias: [bool; 7],
     pub tipo: TipoAgenda,
+    /// Na hora certa, a pasta dos arquivos de hora (opcional).
     pub pastas: Vec<PastaAnexada>,
+    /// Hora certa e link: pasta da abertura, toca um arquivo antes (opcional).
+    #[serde(default)]
+    pub abertura: Option<String>,
+    /// Hora certa: pasta do comercial, toca um arquivo depois da hora (opcional).
+    #[serde(default)]
+    pub comercial_hora: Option<String>,
+    /// Hora certa: toca a cada tantos minutos, alinhado ao relógio
+    /// (15 = :00, :15, :30, :45). O horário não é usado.
+    #[serde(default)]
+    pub intervalo: Option<u32>,
+    /// Lista: como entra.
+    #[serde(default)]
+    pub modo_lista: ModoLista,
+    /// Link: endereço do áudio ao vivo (MP3/AAC).
+    #[serde(default)]
+    pub url: Option<String>,
 }
+
+/// Intervalos da hora certa: a cada 30 min ou só na hora cheia.
+pub const INTERVALOS: [u32; 2] = [30, 60];
 
 impl Agendamento {
     pub fn hora_minuto(&self) -> Option<(u32, u32)> {
@@ -57,6 +91,80 @@ impl Agendamento {
     fn vale_no_dia(&self, dia_semana: usize) -> bool {
         self.dias.get(dia_semana).copied().unwrap_or(false)
     }
+
+    /// Minutos do dia (0 = 00:00) em que dispara.
+    pub fn minutos_do_dia(&self) -> Vec<u32> {
+        match (self.tipo, self.intervalo) {
+            (TipoAgenda::HoraCerta, Some(n)) if n > 0 => (0..24 * 60).step_by(n as usize).collect(),
+            _ => self.hora_minuto().map(|(h, m)| h * 60 + m).into_iter().collect(),
+        }
+    }
+
+    /// Tem alguma pasta escolhida (na hora certa, qualquer um dos três campos).
+    pub fn tem_pasta(&self) -> bool {
+        !self.pastas.is_empty()
+            || (self.tipo == TipoAgenda::HoraCerta && (self.abertura.is_some() || self.comercial_hora.is_some()))
+    }
+
+    /// Apaga os campos que não valem para o tipo e confere o que falta.
+    pub fn validar(&mut self) -> Result<(), String> {
+        let tipo = self.tipo;
+        if !matches!(tipo, TipoAgenda::HoraCerta | TipoAgenda::Link) {
+            self.abertura = None;
+        }
+        if tipo != TipoAgenda::HoraCerta {
+            self.comercial_hora = None;
+            self.intervalo = None;
+        }
+        if tipo != TipoAgenda::Lista {
+            self.modo_lista = ModoLista::default();
+        }
+        if tipo == TipoAgenda::Link {
+            self.pastas.clear();
+            let url = self.url.as_deref().map(str::trim).unwrap_or_default().to_string();
+            if !(url.starts_with("http://") || url.starts_with("https://")) || url.contains(char::is_whitespace) {
+                return Err("Coloque o endereço do link (começa com http:// ou https://).".into());
+            }
+            self.url = Some(url);
+        } else {
+            self.url = None;
+        }
+        if tipo == TipoAgenda::HoraCerta {
+            if !self.intervalo.is_some_and(|n| INTERVALOS.contains(&n)) {
+                return Err("Escolha de quanto em quanto tempo toca.".into());
+            }
+        } else if self.hora_minuto().is_none() {
+            return Err("Horário inválido.".into());
+        }
+        if !self.dias.iter().any(|d| *d) {
+            return Err("Marque pelo menos um dia.".into());
+        }
+        if tipo != TipoAgenda::Link && !self.tem_pasta() {
+            return Err("Escolha pelo menos uma pasta.".into());
+        }
+        Ok(())
+    }
+}
+
+const DIAS_NOME: [&str; 7] = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
+/// Dois agendamentos não podem ter o mesmo horário num mesmo dia. A hora certa
+/// é uma só e pode cair junto com qualquer outro.
+pub fn conflito(v: &[Agendamento], ag: &Agendamento) -> Option<String> {
+    let outros = v.iter().filter(|o| o.id != ag.id);
+    if ag.tipo == TipoAgenda::HoraCerta {
+        return outros
+            .clone()
+            .any(|o| o.tipo == TipoAgenda::HoraCerta)
+            .then(|| "Já existe uma hora certa. Só pode ter uma.".to_string());
+    }
+    let hm = ag.hora_minuto()?;
+    outros
+        .filter(|o| o.tipo != TipoAgenda::HoraCerta && o.hora_minuto() == Some(hm))
+        .find_map(|o| {
+            let dias: Vec<&str> = (0..7).filter(|&i| o.dias[i] && ag.dias[i]).map(|i| DIAS_NOME[i]).collect();
+            (!dias.is_empty()).then(|| format!("Já existe um agendamento às {:02}:{:02} ({}).", hm.0, hm.1, dias.join(", ")))
+        })
 }
 
 // ---------- arquivo ----------
@@ -77,8 +185,9 @@ pub fn salvar(dir: &Path, v: &[Agendamento]) -> std::io::Result<()> {
     fs::rename(tmp, dir.join("agendamentos.json"))
 }
 
+/// Hora certa no topo (não tem horário), o resto por horário.
 pub fn ordenar(v: &mut [Agendamento]) {
-    v.sort_by_key(|a| a.hora_minuto().unwrap_or((99, 99)));
+    v.sort_by_key(|a| (a.tipo != TipoAgenda::HoraCerta, a.hora_minuto().unwrap_or((99, 99))));
 }
 
 // ---------- quando disparar ----------
@@ -88,13 +197,18 @@ pub fn dia_semana(d: NaiveDate) -> usize {
     d.weekday().num_days_from_monday() as usize
 }
 
-/// Agendamentos que vencem exatamente neste minuto.
+/// Agendamentos que vencem exatamente neste minuto. A hora certa vem primeiro,
+/// para não atrasar se dividir o horário com um comercial.
 pub fn do_minuto(v: &[Agendamento], data: NaiveDate, hora: u32, minuto: u32) -> Vec<Agendamento> {
     let dia = dia_semana(data);
-    v.iter()
-        .filter(|a| a.vale_no_dia(dia) && a.hora_minuto() == Some((hora, minuto)))
+    let agora = hora * 60 + minuto;
+    let mut vencem: Vec<Agendamento> = v
+        .iter()
+        .filter(|a| a.vale_no_dia(dia) && a.minutos_do_dia().contains(&agora))
         .cloned()
-        .collect()
+        .collect();
+    vencem.sort_by_key(|a| a.tipo != TipoAgenda::HoraCerta);
+    vencem
 }
 
 /// A lista de músicas que deveria estar valendo agora: a última que já passou
@@ -137,12 +251,14 @@ pub fn proximo(v: &[Agendamento]) -> Option<ProximoDto> {
         let achado = v
             .iter()
             .filter(|a| a.tipo != TipoAgenda::Lista && a.vale_no_dia(dia))
-            .filter_map(|a| a.hora_minuto().map(|(h, m)| (h * 60 + m, a)))
+            .flat_map(|a| a.minutos_do_dia().into_iter().map(move |m| (m, a)))
             .filter(|(m, _)| adiante > 0 || *m > minuto_agora)
-            .min_by_key(|(m, _)| *m);
-        if let Some((_, a)) = achado {
+            // No mesmo minuto, a hora certa vem primeiro (é o que toca antes).
+            .min_by_key(|(m, a)| (*m, a.tipo != TipoAgenda::HoraCerta));
+        if let Some((minuto, a)) = achado {
             let nome = match a.tipo {
                 TipoAgenda::HoraCerta => "Hora certa".to_string(),
+                TipoAgenda::Link => "Link ao vivo".to_string(),
                 _ => a
                     .pastas
                     .iter()
@@ -150,7 +266,8 @@ pub fn proximo(v: &[Agendamento]) -> Option<ProximoDto> {
                     .collect::<Vec<_>>()
                     .join(" + "),
             };
-            return Some(ProximoDto { horario: a.horario.clone(), tipo: a.tipo, nome });
+            let horario = format!("{:02}:{:02}", minuto / 60, minuto % 60);
+            return Some(ProximoDto { horario, tipo: a.tipo, nome });
         }
     }
     None
@@ -230,23 +347,68 @@ impl Rodizio {
     }
 }
 
+fn tem_data(p: &Path) -> bool {
+    p.file_stem().and_then(|s| s.to_str()).and_then(validade).is_some()
+}
+
+fn validos(pasta: &str, hoje: NaiveDate) -> Vec<PathBuf> {
+    arquivos_ordenados(Path::new(pasta)).into_iter().filter(|p| !vencido(p, hoje)).collect()
+}
+
+/// Modo "só um": arquivo com data (ainda válida) tem prioridade. Só quando
+/// não há nenhum com data é que entra o rodízio dos sem data.
+fn escolher_um(rodizio: &mut Rodizio, pasta: &str, validos: Vec<PathBuf>) -> Option<PathBuf> {
+    let (com_data, sem_data): (Vec<PathBuf>, Vec<PathBuf>) = validos.into_iter().partition(|p| tem_data(p));
+    let candidatos = if com_data.is_empty() { sem_data } else { com_data };
+    rodizio.proximo(pasta, &candidatos)
+}
+
 /// Monta o bloco de um comercial: pastas na ordem anexada, cada uma com todos
-/// os arquivos ou o próximo do rodízio. Arquivos vencidos ficam de fora.
+/// os arquivos ou um só (data primeiro, depois rodízio). Vencidos ficam de fora.
 pub fn montar_bloco(ag: &Agendamento, rodizio: &mut Rodizio, dir_dados: &Path) -> Vec<PathBuf> {
     let hoje = Local::now().date_naive();
     let mut bloco = Vec::new();
     for pasta in &ag.pastas {
-        let validos: Vec<PathBuf> = arquivos_ordenados(Path::new(&pasta.caminho))
-            .into_iter()
-            .filter(|p| !vencido(p, hoje))
-            .collect();
+        let validos = validos(&pasta.caminho, hoje);
         match pasta.modo {
             Modo::Todos => bloco.extend(validos),
-            Modo::Um => bloco.extend(rodizio.proximo(&pasta.caminho, &validos)),
+            Modo::Um => bloco.extend(escolher_um(rodizio, &pasta.caminho, validos)),
         }
     }
     rodizio.salvar(dir_dados);
     bloco
+}
+
+/// Um arquivo da pasta, como no modo "só um" (com data primeiro, depois rodízio).
+pub fn um_da_pasta(pasta: &str, rodizio: &mut Rodizio, dir_dados: &Path) -> Option<PathBuf> {
+    let escolhido = escolher_um(rodizio, pasta, validos(pasta, Local::now().date_naive()));
+    rodizio.salvar(dir_dados);
+    escolhido
+}
+
+/// Hora certa: um arquivo da abertura, os arquivos da hora e um do comercial.
+/// Cada parte é opcional. `inicio` é quando o bloco deve começar a tocar (fim
+/// da música atual): a hora falada é a desse momento, depois da abertura.
+/// Devolve (abertura + hora, comercial).
+pub fn montar_hora_certa(
+    ag: &Agendamento,
+    inicio: NaiveTime,
+    rodizio: &mut Rodizio,
+    dir_dados: &Path,
+) -> (Vec<PathBuf>, Option<PathBuf>) {
+    let hoje = Local::now().date_naive();
+    let mut um = |pasta: &Option<String>| pasta.as_ref().and_then(|p| escolher_um(rodizio, p, validos(p, hoje)));
+    let abertura = um(&ag.abertura);
+    let comercial = um(&ag.comercial_hora);
+    rodizio.salvar(dir_dados);
+    let dura_abertura = abertura.as_deref().and_then(crate::analise::duracao).unwrap_or(0.0);
+    let falada = inicio + chrono::Duration::milliseconds((dura_abertura * 1000.0) as i64);
+    let arquivos_hora = ag
+        .pastas
+        .first()
+        .map(|p| arquivos_hora_certa(Path::new(&p.caminho), falada))
+        .unwrap_or_default();
+    (abertura.into_iter().chain(arquivos_hora).collect(), comercial)
 }
 
 // ---------- hora certa ----------
@@ -272,12 +434,34 @@ pub fn hora_do_arquivo(nome: &str) -> Option<(u32, u32)> {
     (h < 24 && m < 60).then_some((h, m))
 }
 
-/// Arquivo da pasta de hora certa que corresponde ao horário pedido.
-pub fn arquivo_hora_certa(pasta: &Path, hora: NaiveTime) -> Option<PathBuf> {
-    let alvo = (hora.hour(), hora.minute());
-    arquivos_ordenados(pasta).into_iter().find(|p| {
-        p.file_stem().and_then(|s| s.to_str()).and_then(hora_do_arquivo) == Some(alvo)
-    })
+fn nome_sem_ext(p: &Path) -> String {
+    p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default()
+}
+
+/// Arquivos da pasta de hora certa para o horário pedido. Aceita um arquivo só
+/// com hora e minuto (`08-10.mp3`) ou separados: `HRS08.mp3` + `MIN10.mp3`
+/// (na hora cheia, só o `HRS08`).
+pub fn arquivos_hora_certa(pasta: &Path, hora: NaiveTime) -> Vec<PathBuf> {
+    let (h, m) = (hora.hour(), hora.minute());
+    let arquivos = arquivos_ordenados(pasta);
+    let eh_minuto = |p: &PathBuf| nome_sem_ext(p).starts_with("MIN");
+    // Um arquivo com a hora e o minuto juntos.
+    if let Some(p) = arquivos.iter().find(|p| !eh_minuto(p) && hora_do_arquivo(&nome_sem_ext(p)) == Some((h, m))) {
+        return vec![p.clone()];
+    }
+    // Separados: arquivo da hora e arquivo do minuto.
+    let achar = |prefixo: &str, n: u32| {
+        arquivos.iter().find(|p| {
+            let nome = nome_sem_ext(p);
+            nome.starts_with(prefixo) && numeros(&nome) == [n]
+        })
+    };
+    let Some(arq_hora) = achar("HRS", h) else { return vec![] };
+    let mut v = vec![arq_hora.clone()];
+    if m > 0 {
+        v.extend(achar("MIN", m).cloned());
+    }
+    v
 }
 
 #[cfg(test)]
@@ -312,6 +496,107 @@ mod testes {
             .map(|_| r.proximo("p", &arq).unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(seq, ["a.mp3", "b.mp3", "c.mp3", "a.mp3"]);
+    }
+
+    #[test]
+    fn so_um_prioriza_arquivo_com_data() {
+        let arq = |nomes: &[&str]| nomes.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let mut r = Rodizio::default();
+        // Com data ganha do sem data, sempre.
+        let v = arq(&["A.mp3", "Oferta [31-12-2099].mp3"]);
+        assert_eq!(escolher_um(&mut r, "p", v.clone()).unwrap(), PathBuf::from("Oferta [31-12-2099].mp3"));
+        assert_eq!(escolher_um(&mut r, "p", v).unwrap(), PathBuf::from("Oferta [31-12-2099].mp3"));
+        // Vários com data: rodízio entre eles.
+        let v = arq(&["A.mp3", "X [31-12-2099].mp3", "Y [31-12-2099].mp3"]);
+        let mut r = Rodizio::default();
+        let seq: Vec<_> = (0..3).map(|_| escolher_um(&mut r, "p", v.clone()).unwrap()).collect();
+        assert_eq!(seq, arq(&["X [31-12-2099].mp3", "Y [31-12-2099].mp3", "X [31-12-2099].mp3"]));
+        // Nenhum com data: rodízio dos sem data.
+        let v = arq(&["A.mp3", "B.mp3"]);
+        let mut r = Rodizio::default();
+        let seq: Vec<_> = (0..3).map(|_| escolher_um(&mut r, "p", v.clone()).unwrap()).collect();
+        assert_eq!(seq, arq(&["A.mp3", "B.mp3", "A.mp3"]));
+    }
+
+    fn ag(id: u64, horario: &str, dias: [bool; 7], tipo: TipoAgenda) -> Agendamento {
+        Agendamento { id, horario: horario.into(), dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None }
+    }
+
+    #[test]
+    fn link_precisa_de_endereco_e_nao_de_pasta() {
+        let mut l = ag(0, "19:00", [true; 7], TipoAgenda::Link);
+        assert!(l.validar().is_err());
+        l.url = Some("voz do brasil".into());
+        assert!(l.validar().is_err());
+        l.url = Some("  https://exemplo.com/radio.aac ".into());
+        l.comercial_hora = Some("/x".into());
+        assert!(l.validar().is_ok());
+        assert_eq!(l.url.as_deref(), Some("https://exemplo.com/radio.aac"));
+        assert_eq!(l.comercial_hora, None);
+        // Outros tipos perdem o endereço.
+        let mut c = ag(0, "10:00", [true; 7], TipoAgenda::Comercial);
+        c.pastas.push(PastaAnexada { caminho: "/x".into(), modo: Modo::Todos });
+        c.url = Some("https://x".into());
+        assert!(c.validar().is_ok());
+        assert_eq!(c.url, None);
+    }
+
+    #[test]
+    fn hora_certa_a_cada_intervalo() {
+        let mut h = ag(1, "00:00", [true; 7], TipoAgenda::HoraCerta);
+        h.intervalo = Some(15);
+        let m = h.minutos_do_dia();
+        assert_eq!(m.len(), 96);
+        assert_eq!(&m[..5], [0, 15, 30, 45, 60]);
+        let data = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        assert_eq!(do_minuto(&[h.clone()], data, 10, 45).len(), 1);
+        assert_eq!(do_minuto(&[h], data, 10, 46).len(), 0);
+    }
+
+    #[test]
+    fn hora_certa_com_arquivos_de_hora_e_minuto_separados() {
+        let dir = std::env::temp_dir().join(format!("radio-hc-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        for n in ["HRS00", "HRS08", "HRS23", "MIN01", "MIN08", "MIN10", "MIN59"] {
+            fs::write(dir.join(format!("{n}.mp3")), b"").unwrap();
+        }
+        let nomes = |h: u32, m: u32| -> Vec<String> {
+            arquivos_hora_certa(&dir, NaiveTime::from_hms_opt(h, m, 0).unwrap())
+                .iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(nomes(8, 10), ["HRS08.mp3", "MIN10.mp3"]);
+        assert_eq!(nomes(8, 0), ["HRS08.mp3"]);
+        assert_eq!(nomes(0, 8), ["HRS00.mp3", "MIN08.mp3"]);
+        assert_eq!(nomes(23, 59), ["HRS23.mp3", "MIN59.mp3"]);
+        // MIN08 não é confundido com 08:00.
+        assert_eq!(nomes(8, 0), ["HRS08.mp3"]);
+        // Sem o arquivo da hora, não toca o minuto sozinho.
+        assert!(nomes(9, 10).is_empty());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn bloqueia_mesmo_horario_no_mesmo_dia() {
+        const SEG_SEX: [bool; 7] = [true, true, true, true, true, false, false];
+        const SAB: [bool; 7] = [false, false, false, false, false, true, false];
+        const SEG: [bool; 7] = [true, false, false, false, false, false, false];
+        let v = vec![ag(1, "10:00", SEG_SEX, TipoAgenda::Comercial)];
+        // Mesmo horário e dia em comum: não pode.
+        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::Lista)).is_some());
+        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::Comercial)).is_some());
+        // Outro dia ou outro horário: pode.
+        assert!(conflito(&v, &ag(0, "10:00", SAB, TipoAgenda::Comercial)).is_none());
+        assert!(conflito(&v, &ag(0, "10:01", SEG, TipoAgenda::Comercial)).is_none());
+        // Editar o próprio não conflita consigo mesmo.
+        assert!(conflito(&v, &ag(1, "10:00", SEG_SEX, TipoAgenda::Comercial)).is_none());
+        // Hora certa cai junto com qualquer outro, mas só pode existir uma.
+        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::HoraCerta)).is_none());
+        let v = vec![ag(1, "00:00", SEG_SEX, TipoAgenda::HoraCerta)];
+        assert!(conflito(&v, &ag(0, "00:00", SAB, TipoAgenda::HoraCerta)).is_some());
+        assert!(conflito(&v, &ag(1, "00:00", SAB, TipoAgenda::HoraCerta)).is_none());
+        assert!(conflito(&v, &ag(0, "00:00", SEG, TipoAgenda::Comercial)).is_none());
     }
 
     #[test]

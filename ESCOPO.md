@@ -46,6 +46,14 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux) ou `~/Library/Application 
 | `agendamentos.json` | Agendamentos |
 | `rodizio.json` | Último arquivo tocado de cada pasta no modo "só um" |
 | `motor.liq` / `motor.log` | Script e avisos do motor de áudio (diagnóstico) |
+| `captura.liq` / `captura.log` | Script e avisos da gravação/transmissão (diagnóstico) |
+
+### Windows
+- Instalador `.exe` gerado pelo **GitHub Actions** (aba Actions → "Instalador Windows" → Run workflow); o arquivo fica em *Artifacts* no fim da execução.
+- O **Liquidsoap 2.4.6 para Windows vai dentro do instalador** (pasta de recursos `liquidsoap/`): não precisa instalar nada além do programa.
+- Som pelo **PortAudio** (saída, pré-escuta e entrada escolhidas pelo nome da placa); gravação e transmissão em MP3 pelo **FFmpeg** (o Liquidsoap do Windows não tem o codificador lame). Mesma folga de 1 s do Mac contra travadinhas.
+- Liquidsoap e consultas de placas abrem **sem janela de terminal**; motor antigo preso é fechado com `tasklist`/`taskkill`.
+- ⚠️ Ainda não testado em Windows de verdade.
 
 ## 3. Telas
 
@@ -96,6 +104,8 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 ### 3.5 Configurações ✅ (parte)
 - ✅ **Entrar no ar sozinho** ao abrir o programa.
 - ✅ Pasta de músicas (**Trocar**) e **Atualizar** (relê o acervo).
+- ✅ **Nome da rádio**: aparece no topo (sem ícone) e na transmissão.
+- ✅ **Placa de som**, **Gravação** e **Transmissão** (ver seção 7).
 - ✅ **Senha** (criar, trocar, remover) e **bloqueios** por área: Agendamentos, Pastas, Cartucheira, Configurações. Desbloqueia uma vez e vale até apertar o cadeado. Proteção contra mexida sem querer — não é segurança forte.
 - ❓ Ainda por alinhar: saídas de áudio / placa da pré-escuta, transmissão, gravação, regras da fila.
 
@@ -122,26 +132,33 @@ Por **horário + dias da semana**. O programa só preenche/executa — não exis
 
 | Tipo | Comportamento |
 |---|---|
-| 🎵 **Lista de músicas** | A partir do horário, a fila puxa **aleatório** da pasta. Vale até a próxima lista. Ao abrir no meio do dia, vale a última lista que já passou. |
+| 🎵 **Lista de músicas** | **Limpa a fila** e põe músicas novas (aleatório) da pasta. Duas opções: **Aguardar** (a música atual termina) ou **Imediato** (fade de 3 s e a lista já começa; comercial/hora certa tocando não levam fade). Vale até a próxima lista. Ao abrir no meio do dia, vale a última lista que já passou. Também **encerra o link** (fade de 3 s). |
 | 📢 **Comercial** | Espera a música acabar e toca as pastas anexadas. |
 | 🎙 **Comercial com ducking** | Entra **por cima**: a música cai para 20% quando há voz e sobe nos silêncios. Se o bloco **não cabe** no que falta da música, ela **repete por baixo** e, no fim da fala, **fade de 3 s** e próxima. |
-| 🕐 **Hora certa** | Toca o arquivo com a hora atual no nome (`HRS08_MIN10`, `08-10`, `08h10`, `0810`, `8` = hora cheia). Espera a música acabar. |
+| 🕐 **Hora certa** | **Só existe uma.** Toca na **hora cheia** ou **a cada 30 min** (:00 e :30), nos dias marcados. Espera a música acabar e toca, nesta ordem, três partes opcionais: **abertura da hora** (um arquivo da pasta), **hora** e **comercial da hora** (um arquivo da pasta). A hora falada é a do fim da música, não a do disparo. Arquivos de hora: separados `HRS08` + `MIN10` (hora cheia = só `HRS08`) ou um só (`HRS08_MIN10`, `08-10`, `08h10`, `0810`). |
+| 📡 **Link** | Áudio ao vivo por endereço (MP3/AAC/HLS), ex.: Voz do Brasil. No horário, **fade de 3 s** na música, toca **um arquivo da pasta de abertura** (opcional) e entra o link. Toca **até a próxima lista ou outro link**. Se cair, **silêncio tentando reconectar** sozinho. Comercial, ducking e hora certa que caem durante o link (ou esperavam a música acabar) são **descartados**. Passar fica bloqueado. |
 
 - **Agendamento não entra na fila e não se pula:** comercial e hora certa tocam numa sequência própria antes da fila. Passar não pula agendamento; se pular uma música, o comercial que estava esperando continua garantido.
 - Fora do ar, comercial e hora certa **não são guardados** para depois (lista de músicas vale mesmo fora do ar).
+- **Nunca dois agendamentos no mesmo horário** num mesmo dia (salvar avisa). A **hora certa** pode cair junto com qualquer outro e toca primeiro.
+- Voz da hora certa que a rádio usa: `audios/Hora Certa (Voz Fem)/` no projeto.
 - Várias **pastas** por agendamento, tocando **na ordem anexada**; cada pasta **Todos** ou **Só um** (rodízio salvo).
+- **Só um:** arquivo **com data** (ainda válida) tem prioridade sobre os sem data; com vários de data, rodízio entre eles. Sem nenhum com data, rodízio dos sem data. Vale também para abertura e comercial da hora certa.
 - Dentro da pasta: **ordem alfabética natural** (`2` antes de `10`). Abertura/fechamento = nomear em ordem.
 - **Validade** no nome: `Ofertas [12-10-2025].mp3` toca até 12/10/2025 inclusive; vencido é pulado (fica na pasta). Só comerciais. Na tela o nome aparece sem a data.
 - Cores: agendamentos em **amarelo**; hora certa em azul.
-- 💡 Hora certa "repetir toda hora" (hoje é um agendamento por horário).
-- ❓ Hora certa: confirmar se espera a música (atual) ou entra por cima com ducking.
+
+- **macOS:** o motor processa o áudio em pedaços de 0,2 s (padrão 0,04 s). A saída do Mac só guarda dois pedaços; com pedaços pequenos, abrir o navegador ou outro programa fazia o som raspar.
 
 ## 7. Áudio (Fase 3)
 
-- ✅ Saída principal (caixa de som / mesa).
-- ✅ Pré-escuta numa saída separada (falta escolher a placa).
-- ❓ **Transmissão pela internet** (Icecast): servidor, porta, ponto de montagem, senha, qualidade.
-- ❓ **Gravação** do que vai ao ar. 💡 1 arquivo por hora; 💡 apagar após X dias.
+- ✅ **Placa de som** (Configurações): saída principal, pré-escuta e entrada (mesa), cada uma com "Padrão do sistema" ou uma placa. Linux: lista do PulseAudio (`pactl`); Mac (desenvolvimento): lista do `ffmpeg`. Trocar a saída reinicia o motor (a música atual é interrompida e segue a próxima).
+- ✅ **Gravação** da **entrada da placa** (o que vem da mesa) em MP3 mono (**24** ou **32** kbps, padrão 24). Um arquivo a cada **30 min** (padrão) ou **1 hora**, cortado na virada do relógio: `<pasta>/15-11-2026/14-00.mp3` (pasta do dia, arquivo com a hora do início). Chave liga/desliga: ligada, grava sempre que o programa está aberto. Pastas de dia com **mais de 30 dias são apagadas** (só pastas com nome dd-mm-aaaa).
+- ✅ **Transmissão** Icecast da **entrada da placa**, em MP3: servidor, porta, senha, ponto de montagem, bitrate, samplerate, mono/estéreo. Chave liga/desliga; se cair, tenta de novo a cada 5 s. Mostra No ar / Conectando / Erro.
+- Gravação e transmissão rodam num **segundo Liquidsoap** (`captura.liq` / `captura.log`), separado do que toca: mudar essas configurações não interrompe o som no ar. Se ele parar, volta sozinho em 5 s.
+- 💡 Transmissão em AAC e servidor Shoutcast (hoje: MP3 e Icecast).
+- ✅ **Vinheta entre as músicas** (chave em Configurações → Músicas, ligada por padrão): entre **toda** música e a seguinte toca uma vinheta **sorteada dos botões da cartucheira** (sem repetir a última), inteira e sem mistura. Só entre música e música (não perto de comercial, hora certa ou link). Passar pula direto para a próxima música, sem vinheta. A vinheta e a música seguinte vão juntas ao motor, para a música ser analisada enquanto a vinheta toca.
+- ✅ **Músicas: corte de silêncio, volume igual e mistura de 1 s** (autocue do Liquidsoap). Cada música é medida ao entrar no motor (~3 s): pula o silêncio do **começo e do fim** (pausas no meio ficam), ajusta o **volume médio** para todas tocarem no mesmo nível (-14 LUFS, um ajuste só por música, sem achatar) e a próxima **entra 1 s antes** do fim da anterior. Os arquivos não são alterados. **Comercial, vinheta, hora certa, abertura, comercial com ducking e cartucheira** também têm o **volume igualado**, mas tocam **inteiros** (sem corte de silêncio) e **sem mistura**. A pré-escuta toca o arquivo como ele é. Por isso a próxima faixa é entregue ao motor 15 s antes do fim (antes eram 5 s).
 - 💡 Nível do ducking configurável.
 
 ## 8. Histórico
@@ -163,10 +180,8 @@ Medido no Mac (versão de desenvolvimento), tocando: programa ~30 MB, tela ~55 M
 
 ## 11. Pendências e decisões em aberto
 
-- ❓ Hora certa: espera a música ou ducking? Opção "toda hora"?
 - ❓ Comercial que dispara fora do ar: descartar (atual) ou guardar?
 - ❓ Sugestões 💡 da fila (repetição, crossfade) e do histórico.
-- ❓ Configurações de áudio, transmissão e gravação (Fase 3).
 - ❓ Limite do inotify no Linux com muitas subpastas.
 
 ## 12. O que testar (🧪)
@@ -188,8 +203,25 @@ Nada disso foi testado de ouvido ou clicando por completo:
 - [ ] Validade: arquivo vencido não toca.
 - [ ] Ducking curto: música abaixa com voz, sobe no silêncio, volta ao normal.
 - [ ] Ducking longo: música repete por baixo, fade de 3 s e próxima.
-- [ ] Hora certa com os arquivos reais da rádio.
-- [ ] Lista de músicas trocando de pasta no horário.
+- [ ] Hora certa com `audios/Hora Certa (Voz Fem)` (HRS + MIN), a cada X minutos, abertura + hora + comercial da hora; hora falada certa no fim da música.
+- [ ] Só dá para criar uma hora certa; opções Hora cheia e 30 min.
+- [ ] Novo agendamento já vem com todos os dias marcados.
+- [ ] Salvar dois agendamentos no mesmo horário e dia é bloqueado; hora certa junto com comercial toca antes.
+- [ ] Só um: arquivo com data toca no lugar dos sem data.
+- [ ] Lista de músicas trocando de pasta no horário: fila limpa com músicas novas; Aguardar e Imediato.
+- [ ] Link: fade, abertura, link no ar; internet cai = silêncio e volta sozinho; lista seguinte encerra com fade; comercial/hora certa no meio não tocam.
+- [ ] macOS: abrir Chrome/outros programas com a rádio no ar sem o som raspar.
+- [ ] Vinheta da cartucheira entre toda música (sorteada, sem repetir), desligável em Configurações.
+- [ ] Barras de tempo (verde no ar, azul na pré-escuta) andando suaves.
+- [ ] Músicas sem buraco entre uma e outra (silêncio cortado), mistura de ~1 s, volumes parecidos; comercial/vinheta/hora certa inteiros e sem mistura; barra de tempo acaba junto com a música.
+- [ ] Pré-escuta: clicar na linha para frente e para trás vai ao ponto certo; a barra acompanha o que se ouve (no Mac, com 1 s de atraso compensado).
+- [ ] Nome da rádio muda o topo.
+- [ ] Topo: aba NO AR com ícone; etiquetas GRAVANDO / TRANSMITINDO (laranja quando há problema).
+- [ ] Música não aumenta de volume no fim, antes da vinheta.
+- [ ] Windows: instalar, tocar, pré-escuta, escolher placas, gravar, transmitir.
+- [ ] Trocar saída principal e pré-escuta de placa (o som muda de lugar).
+- [ ] Gravação: arquivos em pasta do dia, cortados na virada da hora / meia hora, com o som da mesa.
+- [ ] Transmissão: conecta no servidor, aparece "No ar"; senha errada mostra erro; internet cai e volta sozinha.
 - [ ] Próximo agendamento correto no Tocando agora.
 
 **Abas**

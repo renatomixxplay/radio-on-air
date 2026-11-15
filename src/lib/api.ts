@@ -23,6 +23,7 @@ export interface Retrato {
   pasta_musicas: string | null;
   pastas: Pasta[];
   tocar_ao_abrir: boolean;
+  vinheta_entre_musicas: boolean;
   protegido: boolean;
   bloqueios: Bloqueios;
   cartucheira: ({ nome: string; caminho: string } | null)[];
@@ -36,10 +37,56 @@ export interface Retrato {
   por_cima: string | null;
   aguardando: string | null;
   repetir_auto: boolean;
+  nome_radio: string;
+  audio: Audio;
+  gravacao: Gravacao;
+  transmissao: Transmissao;
+  /** "desligada", "conectando", "conectado", "caiu" ou "erro: …". */
+  transmissao_estado: string;
+  erro_captura: string | null;
+  /** A gravação está ligada e funcionando. */
+  gravando: boolean;
   proximo_agendamento: { horario: string; tipo: TipoAgenda; nome: string } | null;
+  /** Endereço do link ao vivo no ar. */
+  link: string | null;
 }
 
-export type TipoAgenda = "lista" | "comercial" | "ducking" | "hora_certa";
+/** Placas escolhidas (null = padrão do sistema). */
+export interface Audio {
+  saida: string | null;
+  pre_escuta: string | null;
+  entrada: string | null;
+}
+
+export interface Gravacao {
+  ligada: boolean;
+  pasta: string | null;
+  bitrate: number;
+  minutos: number;
+}
+
+export interface Transmissao {
+  ligada: boolean;
+  servidor: string;
+  porta: number;
+  senha: string;
+  ponto: string;
+  bitrate: number;
+  samplerate: number;
+  estereo: boolean;
+}
+
+export interface Placa {
+  id: string;
+  nome: string;
+}
+
+export interface Placas {
+  saidas: Placa[];
+  entradas: Placa[];
+}
+
+export type TipoAgenda = "lista" | "comercial" | "ducking" | "hora_certa" | "link";
 
 export interface PastaAnexada {
   caminho: string;
@@ -52,7 +99,18 @@ export interface Agendamento {
   /** Segunda a domingo. */
   dias: boolean[];
   tipo: TipoAgenda;
+  /** Na hora certa, a pasta dos arquivos de hora. */
   pastas: PastaAnexada[];
+  /** Hora certa: pasta da abertura (um arquivo antes da hora). */
+  abertura?: string | null;
+  /** Hora certa: pasta do comercial (um arquivo depois da hora). */
+  comercial_hora?: string | null;
+  /** Hora certa: toca a cada tantos minutos (o horário não é usado). */
+  intervalo?: number | null;
+  /** Lista: espera a música atual acabar ou faz fade e já entra. */
+  modo_lista?: "depois_desta" | "fade";
+  /** Link: endereço do áudio ao vivo (MP3/AAC). */
+  url?: string | null;
 }
 
 export interface Previa {
@@ -62,6 +120,8 @@ export interface Previa {
   duracao: number | null;
   decorrido: number;
   iniciada: boolean;
+  /** Segundos até o som chegar à saída (a barra só anda depois disso). */
+  espera: number;
 }
 
 export interface Faixa {
@@ -104,6 +164,12 @@ export const api = {
   pastaAdicionar: (caminho: string) => invoke<void>("pasta_adicionar", { caminho }),
   pastaRemover: (caminho: string) => invoke<void>("pasta_remover", { caminho }),
   definirTocarAoAbrir: (valor: boolean) => invoke<void>("definir_tocar_ao_abrir", { valor }),
+  definirVinhetaEntreMusicas: (valor: boolean) => invoke<void>("definir_vinheta_entre_musicas", { valor }),
+  nomeRadioDefinir: (nome: string) => invoke<void>("nome_radio_definir", { nome }),
+  placas: () => invoke<Placas>("placas"),
+  audioDefinir: (audio: Audio) => invoke<void>("audio_definir", { audio }),
+  gravacaoDefinir: (gravacao: Gravacao) => invoke<void>("gravacao_definir", { gravacao }),
+  transmissaoDefinir: (transmissao: Transmissao) => invoke<void>("transmissao_definir", { transmissao }),
   senhaConferir: (senha: string) => invoke<boolean>("senha_conferir", { senha }),
   senhaDefinir: (atual: string, nova: string) => invoke<void>("senha_definir", { atual, nova }),
   bloqueiosDefinir: (bloqueios: Bloqueios, senha: string) => invoke<void>("bloqueios_definir", { bloqueios, senha }),

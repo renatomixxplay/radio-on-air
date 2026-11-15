@@ -98,7 +98,9 @@
     cursor: pointer;
     background: #172033;
   }
+  /* Desliza entre as atualizações do tempo (a cada 0,5 s). */
   .mini {
+    transition: width 0.5s linear;
     position: absolute;
     left: 0;
     bottom: 0;

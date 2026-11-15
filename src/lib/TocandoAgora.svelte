@@ -13,6 +13,7 @@
     aguardando,
     repetirAuto,
     proximo,
+    link,
   }: {
     item: Item | null;
     decorrido: number;
@@ -24,6 +25,8 @@
     aguardando: string | null;
     repetirAuto: boolean;
     proximo: Retrato["proximo_agendamento"];
+    /** Endereço do link ao vivo no ar. */
+    link: string | null;
   } = $props();
 
   const duracao = $derived(item?.duracao ?? null);
@@ -57,13 +60,19 @@
     {#if item}
       <div class="titulo reticencias">{item.titulo}</div>
       <div class="artista reticencias">{item.artista || " "}</div>
+    {:else if link}
+      <div class="titulo">Link ao vivo</div>
+      <div class="artista reticencias" title={link}>{link}</div>
     {:else}
       <div class="titulo suave">{noAr ? "Aguardando…" : "Parado"}</div>
       <div class="artista">&nbsp;</div>
     {/if}
 
     <div class="barra" aria-hidden="true">
-      <div class="preenchido" class:acabando style:width="{progresso * 100}%"></div>
+      <!-- Uma barra nova a cada faixa: não "volta deslizando" do fim para o começo. -->
+      {#key item?.id}
+        <div class="preenchido" class:acabando style:width="{progresso * 100}%"></div>
+      {/key}
     </div>
 
     <div class="tempos mono">
@@ -90,9 +99,9 @@
       </button>
       <button
         onclick={api.proxima}
-        title={agendado ? "Agendamento não pode ser pulado" : "Passar para a próxima"}
+        title={agendado || link ? "Agendamento não pode ser pulado" : "Passar para a próxima"}
         aria-label="Passar"
-        disabled={!noAr || agendado}
+        disabled={!noAr || agendado || !!link}
       >
         <Icone nome="skip" tamanho={20} />
       </button>
@@ -164,7 +173,10 @@
     overflow: hidden;
     margin: 8px 0;
   }
+  /* O tempo é atualizado a cada 0,5 s: a barra desliza nesse mesmo tempo, em
+     vez de pular de degrau em degrau. */
   .preenchido {
+    transition: width 0.5s linear;
     height: 100%;
     background: var(--verde);
     border-radius: 7px;

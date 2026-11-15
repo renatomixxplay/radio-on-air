@@ -11,13 +11,25 @@
     { tipo: "comercial", nome: "Comercial", icone: "megafone" },
     { tipo: "ducking", nome: "Com ducking", icone: "ducking" },
     { tipo: "hora_certa", nome: "Hora certa", icone: "relogio" },
+    { tipo: "link", nome: "Link", icone: "aovivo" },
   ];
   const DICA: Record<TipoAgenda, string> = {
-    lista: "A partir do horário, a fila puxa músicas aleatórias desta pasta.",
+    lista: "Limpa a fila e põe músicas novas desta pasta. Vale até a próxima lista. Também encerra um link.",
     comercial: "Espera a música acabar e toca as pastas, nesta ordem.",
     ducking: "Entra por cima da música, que abaixa enquanto tem voz.",
-    hora_certa: "Toca o arquivo com a hora atual no nome (ex.: 08-10.mp3).",
+    hora_certa: "Só existe uma. Na hora cheia (ou a cada 30 min), espera a música acabar e toca a abertura, a hora (HRS08 + MIN10) e o comercial. Todos opcionais.",
+    link: "No horário, a música faz fade e entra o link (MP3/AAC), depois da abertura. Toca até a próxima lista ou link. Se cair, fica em silêncio tentando reconectar. Comercial e hora certa no meio são descartados.",
   };
+  const INTERVALOS = [
+    { minutos: 60, nome: "Hora cheia" },
+    { minutos: 30, nome: "30 min" },
+  ];
+  type ParteHora = "abertura" | "hora" | "comercial_hora";
+  const PARTES_HORA: { chave: ParteHora; nome: string }[] = [
+    { chave: "abertura", nome: "Abertura da hora" },
+    { chave: "hora", nome: "Hora" },
+    { chave: "comercial_hora", nome: "Comercial da hora" },
+  ];
 
   let lista = $state<Agendamento[]>([]);
   let filtro = $state(-1); // -1 = todos os dias
@@ -35,6 +47,28 @@
   const nomePasta = (c: string) => c.split("/").filter(Boolean).pop() ?? c;
   const tipoInfo = (t: TipoAgenda) => TIPOS.find((x) => x.tipo === t)!;
 
+  const pastaHora = (a: Agendamento, k: ParteHora) => (k === "hora" ? (a.pastas[0]?.caminho ?? null) : (a[k] ?? null));
+
+  function nomesDe(a: Agendamento) {
+    const caminhos =
+      a.tipo === "hora_certa"
+        ? PARTES_HORA.map((p) => pastaHora(a, p.chave)).filter((c): c is string => !!c)
+        : a.pastas.map((p) => p.caminho);
+    if (a.tipo === "link") return [a.abertura ? nomePasta(a.abertura) : null, a.url].filter(Boolean).join(" + ");
+    return caminhos.map(nomePasta).join(" + ");
+  }
+
+  function definirHora(k: ParteHora, caminho: string | null) {
+    if (!edicao) return;
+    if (k === "hora") edicao.pastas = caminho ? [{ caminho, modo: "todos" }] : [];
+    else edicao[k] = caminho;
+  }
+
+  async function escolherHora(k: ParteHora) {
+    const p = await open({ directory: true, multiple: false, title: "Escolher pasta" });
+    if (typeof p === "string") definirHora(k, p);
+  }
+
   function editar(a: Agendamento) {
     erro = "";
     edicao = structuredClone($state.snapshot(a)) as Agendamento;
@@ -42,7 +76,7 @@
 
   function novo() {
     erro = "";
-    edicao = { id: 0, horario: "08:00", dias: [true, true, true, true, true, false, false], tipo: "comercial", pastas: [] };
+    edicao = { id: 0, horario: "08:00", dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null };
   }
 
   async function anexar() {
@@ -58,6 +92,8 @@
     edicao.tipo = t;
     // Lista e hora certa usam uma pasta só.
     if (t === "lista" || t === "hora_certa") edicao.pastas = edicao.pastas.slice(0, 1);
+    if (t === "hora_certa" && !INTERVALOS.some((i) => i.minutos === edicao!.intervalo)) edicao.intervalo = 60;
+    if (t === "link") edicao.pastas = [];
   }
 
   async function salvar() {
@@ -101,9 +137,9 @@
       {#each visiveis as a (a.id)}
         {@const t = tipoInfo(a.tipo)}
         <button class="painel linha ag" class:sel={edicao?.id === a.id} onclick={() => editar(a)}>
-          <span class="hora">{a.horario}</span>
+          <span class="hora">{a.tipo === "hora_certa" ? `${a.intervalo ?? "–"} min` : a.horario}</span>
           <span class="tag etiqueta {a.tipo}" title={t.nome}><Icone nome={t.icone} tamanho={18} /></span>
-          <span class="reticencias pastas">{a.pastas.map((p) => nomePasta(p.caminho)).join(" + ")}</span>
+          <span class="reticencias pastas">{nomesDe(a)}</span>
           <span class="dias">
             {#each DIAS as d, i}<span class="d" class:on={a.dias[i]}>{d}</span>{/each}
           </span>
@@ -126,8 +162,17 @@
   <section class="painel cartao editor">
     {#if edicao}
 
-      <div class="campo">Horário</div>
-      <input class="horario" type="time" bind:value={edicao.horario} />
+      {#if edicao.tipo === "hora_certa"}
+        <div class="campo">Quando toca</div>
+        <div class="intervalos">
+          {#each INTERVALOS as i}
+            <button class="intervalo" class:on={edicao.intervalo === i.minutos} onclick={() => (edicao!.intervalo = i.minutos)}>{i.nome}</button>
+          {/each}
+        </div>
+      {:else}
+        <div class="campo">Horário</div>
+        <input class="horario" type="time" bind:value={edicao.horario} />
+      {/if}
 
       <div class="campo">Dias</div>
       <div class="dias-grandes">
@@ -149,6 +194,42 @@
       </div>
       <div class="dica">{DICA[edicao.tipo]}</div>
 
+      {#if edicao.tipo === "link"}
+        <div class="campo">Endereço do link (MP3 ou AAC)</div>
+        <input class="url" type="url" placeholder="https://…" bind:value={edicao.url} spellcheck="false" />
+        <div class="campo">Abertura</div>
+        {#if edicao.abertura}
+          <div class="pasta">
+            <span class="cor-pasta"><Icone nome="folder" tamanho={18} /></span>
+            <span class="reticencias nome" title={edicao.abertura}>{nomePasta(edicao.abertura)}</span>
+            <button class="quadrado pequeno" onclick={() => (edicao!.abertura = null)} aria-label="Tirar pasta">
+              <Icone nome="x" tamanho={16} />
+            </button>
+          </div>
+        {:else}
+          <button class="anexar parte" onclick={() => escolherHora("abertura")}>
+            <Icone nome="plus" tamanho={16} /> Escolher pasta
+          </button>
+        {/if}
+      {:else if edicao.tipo === "hora_certa"}
+        {#each PARTES_HORA as parte (parte.chave)}
+          {@const caminho = pastaHora(edicao, parte.chave)}
+          <div class="campo">{parte.nome}</div>
+          {#if caminho}
+            <div class="pasta">
+              <span class="cor-pasta"><Icone nome="folder" tamanho={18} /></span>
+              <span class="reticencias nome" title={caminho}>{nomePasta(caminho)}</span>
+              <button class="quadrado pequeno" onclick={() => definirHora(parte.chave, null)} aria-label="Tirar pasta">
+                <Icone nome="x" tamanho={16} />
+              </button>
+            </div>
+          {:else}
+            <button class="anexar parte" onclick={() => escolherHora(parte.chave)}>
+              <Icone nome="plus" tamanho={16} /> Escolher pasta
+            </button>
+          {/if}
+        {/each}
+      {:else}
       <div class="campo">{variasPastas ? "Pastas (tocam nesta ordem)" : "Pasta"}</div>
       {#each edicao.pastas as p, i (p.caminho + i)}
         <div
@@ -167,7 +248,7 @@
           {#if variasPastas}
             <span class="seg">
               <button class:on={p.modo === "todos"} onclick={() => (p.modo = "todos")}>Todos</button>
-              <button class:on={p.modo === "um"} onclick={() => (p.modo = "um")} title="Rodízio: um arquivo por vez">Só um</button>
+              <button class:on={p.modo === "um"} onclick={() => (p.modo = "um")} title="Um arquivo por vez: com data primeiro, depois rodízio">Só um</button>
             </span>
           {/if}
           <button class="quadrado pequeno" onclick={() => edicao!.pastas.splice(i, 1)} aria-label="Tirar pasta">
@@ -179,6 +260,16 @@
         <button class="anexar" onclick={anexar}><Icone nome="plus" tamanho={16} /> Anexar pasta</button>
       {:else}
         <button class="anexar" onclick={anexar}><Icone nome="folderOpen" tamanho={16} /> Trocar pasta</button>
+      {/if}
+      {#if edicao.tipo === "lista"}
+        <div class="campo espaco">Ao entrar</div>
+        <div class="modos">
+          <button class="modo" class:on={(edicao.modo_lista ?? "depois_desta") === "depois_desta"} onclick={() => (edicao!.modo_lista = "depois_desta")} title="Espera a música atual acabar">
+            Aguardar
+          </button>
+          <button class="modo" class:on={edicao.modo_lista === "fade"} onclick={() => (edicao!.modo_lista = "fade")} title="Fade de 3 s na música atual e já começa">Imediato</button>
+        </div>
+      {/if}
       {/if}
 
       {#if erro}<div class="erro">{erro}</div>{/if}
@@ -361,6 +452,24 @@
     border-color: var(--borda-forte);
     border-radius: 8px;
   }
+  .intervalos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .intervalo {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    color: var(--texto-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .intervalo.on {
+    background: #2b3a55;
+    border-color: #4a6aa5;
+    color: #cfe0ff;
+  }
   .dias-grandes {
     display: flex;
     gap: 6px;
@@ -379,7 +488,7 @@
   }
   .tipos {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 6px;
   }
   .tipo {
@@ -457,6 +566,42 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
+  }
+  .anexar.parte {
+    margin-bottom: 14px;
+  }
+  .pasta + .campo {
+    margin-top: 8px;
+  }
+  .tag.link {
+    background: #4a1f24;
+    color: #ff9b9b;
+  }
+  .url {
+    width: 100%;
+    height: 40px;
+    font-size: 15px;
+    margin-bottom: 14px;
+    border-color: var(--borda-forte);
+    border-radius: 8px;
+  }
+  .espaco {
+    margin-top: 14px;
+  }
+  .modos {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .modo {
+    height: 38px;
+    border-radius: 8px;
+    color: var(--texto-2);
+  }
+  .modo.on {
+    border-color: #4a6aa5;
+    background: #1e2533;
+    color: #fff;
   }
   .erro {
     margin-top: 10px;

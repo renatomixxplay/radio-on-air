@@ -20,7 +20,7 @@
   type Aba = "noar" | "agenda" | "pastas" | "cart" | "config";
   let aba = $state<Aba>("noar");
   const ABAS: { id: Aba; nome: string; trava?: keyof Bloqueios }[] = [
-    { id: "noar", nome: "No ar" },
+    { id: "noar", nome: "NO AR" },
     { id: "agenda", nome: "Agendamentos", trava: "agendamentos" },
     { id: "pastas", nome: "Pastas", trava: "pastas" },
     { id: "cart", nome: "Cartucheira", trava: "cartucheira" },
@@ -58,7 +58,8 @@
   const previaDecorrido = $derived.by(() => {
     const p = r?.previa;
     if (!p) return 0;
-    return p.decorrido + (p.iniciada ? Math.max(0, (agora.getTime() - recebidoEm) / 1000) : 0);
+    const passou = (agora.getTime() - recebidoEm) / 1000 - p.espera;
+    return p.decorrido + (p.iniciada ? Math.max(0, passou) : 0);
   });
   const previaPrograma = $derived(
     !!r?.previa && r.pastas.some((p) => r!.previa!.caminho.startsWith(p.caminho + "/")),
@@ -68,25 +69,40 @@
 
 <div class="app">
   <header>
-    <div class="marca"><span class="antena"><Icone nome="antenna" tamanho={20} /></span>Radio On Air</div>
+    <div class="marca reticencias" title={r?.nome_radio}>{r?.nome_radio ?? ""}</div>
     <nav>
       {#each ABAS as a}
-        <button class:on={aba === a.id} onclick={() => (aba = a.id)}>{a.nome}</button>
+        <button class:on={aba === a.id} onclick={() => (aba = a.id)}>
+          {#if a.id === "noar"}<Icone nome="aovivo" tamanho={15} />{/if}{a.nome}
+        </button>
       {/each}
     </nav>
     <div class="direita">
       {#if r?.protegido && liberado}
-        <button class="cadeado" title="Bloquear de novo" aria-label="Bloquear" onclick={() => ((liberado = false), (senhaSessao = ""))}>
-          <Icone nome="aberto" tamanho={18} />
+        <!-- Aparece só com as abas desbloqueadas: o texto é a ação do clique. -->
+        <button class="etiqueta desbloqueado" title="Bloquear as abas de novo" onclick={() => ((liberado = false), (senhaSessao = ""))}>
+          <Icone nome="cadeado" tamanho={14} />BLOQUEAR
         </button>
       {/if}
       {#if r?.iniciando_motor}
         <span class="ligando">ligando o áudio…</span>
       {/if}
-      {#if r?.no_ar}
-        <span class="no-ar">NO AR</span>
-      {:else}
-        <span class="fora">FORA DO AR</span>
+      <!-- Gravação e transmissão: só aparecem com a chave ligada; laranja = problema. -->
+      {#if r?.gravacao.ligada}
+        {#if r.gravando}
+          <span class="etiqueta gravando" title="Gravando a entrada"><Icone nome="gravar" tamanho={14} />GRAVANDO</span>
+        {:else}
+          <span class="etiqueta problema" title={r.erro_captura ?? "A gravação não está funcionando"}><Icone nome="gravar" tamanho={14} />SEM GRAVAÇÃO</span>
+        {/if}
+      {/if}
+      {#if r?.transmissao.ligada}
+        {#if r.transmissao_estado === "conectado"}
+          <span class="etiqueta transmitindo" title="Transmitindo pela internet"><Icone nome="transmitir" tamanho={14} />TRANSMITINDO</span>
+        {:else if r.transmissao_estado === "conectando"}
+          <span class="etiqueta problema" title="Conectando ao servidor"><Icone nome="transmitir" tamanho={14} />CONECTANDO…</span>
+        {:else}
+          <span class="etiqueta problema" title={r.transmissao_estado}><Icone nome="transmitir" tamanho={14} />SEM TRANSMISSÃO</span>
+        {/if}
       {/if}
       <span class="relogio mono">{relogio}</span>
     </div>
@@ -112,6 +128,7 @@
           aguardando={r.aguardando}
           proximo={r.proximo_agendamento}
           repetirAuto={r.repetir_auto}
+          link={r.link}
         />
         <Cartucheira slots={r.cartucheira} />
       </div>
@@ -155,21 +172,19 @@
     border-bottom: 0.5px solid var(--borda);
   }
   .marca {
-    display: flex;
-    align-items: center;
-    gap: 8px;
     font-weight: 500;
-    font-size: 14px;
-  }
-  .antena {
-    color: var(--no-ar);
-    display: flex;
+    font-size: 16px;
+    max-width: 260px;
   }
   nav {
     display: flex;
     gap: 4px;
   }
   nav button {
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     background: transparent;
     border: none;
     border-radius: 0;
@@ -187,34 +202,42 @@
     align-items: center;
     gap: 14px;
   }
-  .no-ar,
-  .fora {
+  /* Etiquetas do topo (Gravando / Transmitindo / Bloquear): ícone + texto. */
+  .etiqueta {
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font: inherit;
     font-size: 13px;
     font-weight: 600;
     padding: 3px 9px;
+    border: none;
     border-radius: 4px;
     letter-spacing: 0.04em;
   }
-  .cadeado {
-    width: 34px;
-    height: 34px;
-    padding: 0;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--tag-comercial);
-  }
-  .ligando {
-    font-size: 13px;
-    color: var(--texto-3);
-  }
-  .no-ar {
+  .gravando {
     background: var(--no-ar);
     color: #fff;
   }
-  .fora {
+  .transmitindo {
+    background: var(--tag-musica-bg);
+    color: var(--tag-musica);
+  }
+  .problema {
+    background: var(--laranja-bg);
+    color: var(--laranja);
+  }
+  .desbloqueado {
     background: var(--painel-2);
+    color: var(--texto-2);
+  }
+  .desbloqueado:hover {
+    color: var(--texto);
+    background: var(--borda-forte);
+  }
+  .ligando {
+    font-size: 13px;
     color: var(--texto-3);
   }
   .relogio {
