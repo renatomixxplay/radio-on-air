@@ -126,7 +126,7 @@
     height: 40px;
     padding: 0 36px 0 12px;
     font: inherit;
-    font-size: 15px;
+    font-size: 14px;
     color: var(--texto);
     background: var(--campo);
     border: 0.5px solid var(--borda-forte);

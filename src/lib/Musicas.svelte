@@ -64,7 +64,7 @@
     </div>
   {:else}
     <div class="busca">
-      <Icone nome="search" tamanho={14} />
+      <Icone nome="search" tamanho={16} />
       <input bind:value={termo} placeholder="Música ou artista" spellcheck="false" />
     </div>
     <div class="lista">
@@ -124,19 +124,25 @@
   .busca {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin: 0 10px 6px;
-    padding-left: 8px;
+    gap: 8px;
+    height: 40px;
+    margin: 0 10px 8px;
+    padding-left: 12px;
     background: var(--campo);
-    border: 0.5px solid var(--borda);
-    border-radius: 6px;
+    border: 0.5px solid var(--borda-forte);
+    border-radius: 8px;
     color: var(--texto-3);
+  }
+  .busca:hover {
+    border-color: #4a5060;
   }
   .busca:focus-within {
     border-color: var(--azul);
   }
   .busca input {
     flex: 1;
+    height: 100%;
+    font-size: 14px;
     border: none;
     background: transparent;
     padding-left: 0;
