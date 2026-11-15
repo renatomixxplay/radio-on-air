@@ -1,0 +1,177 @@
+<script lang="ts">
+  import { api, MIME, tempo, type Arrasto, type Item } from "./api";
+  import Icone from "./Icone.svelte";
+
+  let { fila, falta, agora }: { fila: Item[]; falta: number; agora: Date } = $props();
+
+  const NOMES = { musica: "música", vinheta: "vinheta", programa: "programa" } as const;
+
+  // Horário previsto de cada item: agora + o que falta da atual + as anteriores.
+  const horarios = $derived.by(() => {
+    let t = agora.getTime() + Math.max(0, falta) * 1000;
+    return fila.map((i) => {
+      const h = new Date(t);
+      t += (i.duracao ?? 0) * 1000;
+      return `${String(h.getHours()).padStart(2, "0")}:${String(h.getMinutes()).padStart(2, "0")}`;
+    });
+  });
+  const total = $derived(fila.reduce((s, i) => s + (i.duracao ?? 0), 0));
+
+  let alvo = $state<number | null>(null);
+  let arrastandoId = $state<number | null>(null);
+
+  function iniciar(ev: DragEvent, item: Item) {
+    if (item.travado) return ev.preventDefault();
+    arrastandoId = item.id;
+    const dado: Arrasto = { de: "fila", id: item.id };
+    ev.dataTransfer?.setData(MIME, JSON.stringify(dado));
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+  }
+
+  function sobreLinha(ev: DragEvent, i: number) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    alvo = ev.clientY < r.top + r.height / 2 ? i : i + 1;
+  }
+
+  function sobreLista(ev: DragEvent) {
+    ev.preventDefault();
+    alvo = fila.length;
+  }
+
+  async function soltar(ev: DragEvent) {
+    ev.preventDefault();
+    const pos = alvo ?? fila.length;
+    alvo = null;
+    arrastandoId = null;
+    const txt = ev.dataTransfer?.getData(MIME);
+    if (!txt) return;
+    const dado = JSON.parse(txt) as Arrasto;
+    if (dado.de === "acervo") {
+      await api.filaAdicionar(dado.caminho, dado.tipo, pos).catch(alert);
+    } else {
+      const de = fila.findIndex((i) => i.id === dado.id);
+      await api.filaMover(dado.id, de >= 0 && de < pos ? pos - 1 : pos);
+    }
+  }
+</script>
+
+<section class="painel">
+  <div class="rotulo">
+    <Icone nome="list" tamanho={14} />Fila
+    <span class="info mono">{fila.length}/10 · {tempo(total)}</span>
+  </div>
+  <div
+    class="lista"
+    ondragover={sobreLista}
+    ondragleave={(e) => {
+      if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) alvo = null;
+    }}
+    ondrop={soltar}
+    ondragend={() => {
+      alvo = null;
+      arrastandoId = null;
+    }}
+    role="list"
+  >
+    {#each fila as item, i (item.id)}
+      <div
+        class="linha item"
+        class:travado={item.travado}
+        class:arrastando={arrastandoId === item.id}
+        class:antes={alvo === i}
+        class:depois={alvo === fila.length && i === fila.length - 1}
+        draggable={!item.travado}
+        ondragstart={(e) => iniciar(e, item)}
+        ondragover={(e) => sobreLinha(e, i)}
+        role="listitem"
+      >
+        <span class="pega" class:oculta={item.travado}><Icone nome="grip" tamanho={14} /></span>
+        <span class="hora mono">{horarios[i]}</span>
+        <span class="tag {item.tipo}">{NOMES[item.tipo]}</span>
+        <span class="reticencias nome">
+          {item.titulo}{#if item.artista}<span class="suave">&nbsp;·&nbsp;{item.artista}</span>{/if}
+        </span>
+        <span class="dur mono">{tempo(item.duracao)}</span>
+        {#if item.travado}
+          <span class="entrando" title="Já foi entregue ao motor">entrando</span>
+        {:else}
+          <button class="tirar" aria-label="Tirar da fila" onclick={() => api.filaRemover(item.id)}>
+            <Icone nome="x" tamanho={14} />
+          </button>
+        {/if}
+      </div>
+    {:else}
+      <div class="vazio">A fila está vazia.<br />Arraste músicas ou programas para cá.</div>
+    {/each}
+  </div>
+</section>
+
+<style>
+  .info {
+    margin-left: auto;
+    font-size: 11px;
+  }
+  .item {
+    padding-left: 4px;
+    border-top: 2px solid transparent;
+    border-bottom: 0.5px solid var(--linha);
+  }
+  .item.antes {
+    border-top-color: var(--azul);
+  }
+  .item.depois {
+    border-bottom: 2px solid var(--azul);
+  }
+  .item.arrastando {
+    opacity: 0.4;
+  }
+  .item:not(.travado) {
+    cursor: grab;
+  }
+  .item:hover {
+    background: var(--painel-2);
+  }
+  .item.travado {
+    background: #1b231e;
+  }
+  .pega {
+    color: var(--apagado);
+    display: flex;
+  }
+  .pega.oculta {
+    visibility: hidden;
+  }
+  .hora {
+    color: var(--texto-3);
+    font-size: 12px;
+    width: 40px;
+    flex: none;
+  }
+  .nome {
+    flex: 1;
+  }
+  .dur {
+    color: var(--texto-3);
+    font-size: 12px;
+  }
+  .tirar {
+    border: none;
+    background: transparent;
+    padding: 2px;
+    display: flex;
+    color: var(--texto-3);
+    visibility: hidden;
+  }
+  .item:hover .tirar {
+    visibility: visible;
+  }
+  .tirar:hover {
+    color: var(--no-ar);
+  }
+  .entrando {
+    font-size: 11px;
+    color: var(--verde);
+  }
+</style>

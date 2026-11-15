@@ -1,0 +1,155 @@
+:root {
+  --fundo: #121419;
+  --barra: #16181e;
+  --painel: #1a1d24;
+  --painel-2: #22262f;
+  --campo: #121419;
+  --borda: #2a2e37;
+  --borda-forte: #343945;
+  --linha: #23262e;
+  --texto: #e4e6eb;
+  --texto-2: #a3a8b2;
+  --texto-3: #8a8f99;
+  --apagado: #5b606b;
+  --no-ar: #e5484d;
+  --verde: #3fb950;
+  --verde-borda: #2f5d3a;
+  --azul: #2f6fda;
+  --pasta: #c98a2b;
+
+  --tag-musica-bg: #1f3a2a;
+  --tag-musica: #8fe0a8;
+  --tag-vinheta-bg: #4a3510;
+  --tag-vinheta: #ffd79a;
+  --tag-programa-bg: #2b3a55;
+  --tag-programa: #a9c4f5;
+
+  --mono: ui-monospace, "SF Mono", "DejaVu Sans Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, "Segoe UI", Ubuntu, Cantarell, sans-serif;
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--painel-2);
+  border: 0.5px solid var(--borda-forte);
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover {
+  border-color: #4a5060;
+}
+button:active {
+  transform: scale(0.98);
+}
+
+input {
+  font: inherit;
+  color: var(--texto);
+  background: var(--campo);
+  border: 0.5px solid var(--borda);
+  border-radius: 6px;
+  padding: 6px 8px;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+input:focus {
+  border-color: var(--azul);
+}
+
+.painel {
+  background: var(--painel);
+  border: 0.5px solid var(--borda);
+  border-radius: 8px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rotulo {
+  font-size: 12px;
+  color: var(--texto-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 6px;
+}
+
+.lista {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--linha);
+}
+
+.reticencias {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.tag.musica {
+  background: var(--tag-musica-bg);
+  color: var(--tag-musica);
+}
+.tag.vinheta {
+  background: var(--tag-vinheta-bg);
+  color: var(--tag-vinheta);
+}
+.tag.programa {
+  background: var(--tag-programa-bg);
+  color: var(--tag-programa);
+}
+
+.mono {
+  font-family: var(--mono);
+}
+.suave {
+  color: var(--texto-3);
+}
+.vazio {
+  color: var(--texto-3);
+  padding: 16px 10px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--borda-forte);
+  border-radius: 4px;
+}
