@@ -19,20 +19,11 @@
   }
 
   onMount(() => {
-    // Fora da fila não dá para soltar nada: o cursor mostra "proibido".
-    const bloquear = (e: DragEvent) => {
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
-    };
-    document.addEventListener("dragover", bloquear);
-    document.addEventListener("drop", bloquear);
     api.estado().then(receber);
     const parar = api.aoMudar(receber);
     // Só o relógio e o tempo da faixa mudam sozinhos; o resto vem do programa.
     const t = setInterval(() => (agora = new Date()), 500);
     return () => {
-      document.removeEventListener("dragover", bloquear);
-      document.removeEventListener("drop", bloquear);
       clearInterval(t);
       parar.then((f) => f());
     };
