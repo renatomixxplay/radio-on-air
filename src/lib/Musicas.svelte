@@ -1,6 +1,6 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, MIME, type Arrasto, type Faixa, type Previa } from "./api";
+  import { api, type Faixa, type Previa } from "./api";
   import Icone from "./Icone.svelte";
 
   let {
@@ -33,16 +33,18 @@
     espera = setTimeout(pesquisar, 120);
   });
 
+  /** Durante a pré-escuta, clicar na linha pula para aquele ponto da música. */
+  function pular(ev: MouseEvent, caminho: string) {
+    if (previa?.caminho !== caminho || !previa.duracao) return;
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    api.previaIr(((ev.clientX - r.left) / r.width) * previa.duracao);
+  }
+
   async function escolherPasta() {
     const p = await open({ directory: true, multiple: false, title: "Pasta de músicas" });
     if (typeof p === "string") await api.definirPasta("musicas", p);
   }
 
-  function arrastar(ev: DragEvent, f: Faixa) {
-    const dado: Arrasto = { de: "acervo", caminho: f.caminho, tipo: "musica" };
-    ev.dataTransfer?.setData(MIME, JSON.stringify(dado));
-    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "copy";
-  }
 </script>
 
 <section class="painel">
@@ -68,13 +70,13 @@
     </div>
     <div class="lista">
       {#each resultado as f (f.caminho)}
+        <!-- Clicar para pular só faz sentido com mouse; os botões da linha já são acessíveis pelo teclado. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
         <div
           class="linha faixa"
-          draggable="true"
-          ondragstart={(e) => arrastar(e, f)}
-          ondblclick={() => api.filaAdicionar(f.caminho, "musica")}
+          class:ouvindo-linha={previa?.caminho === f.caminho}
+          onclick={(e) => pular(e, f.caminho)}
           role="listitem"
-          title="Arraste para a fila ou clique duas vezes"
         >
           <div class="textos">
             <span class="reticencias musica">{f.musica}</span>
@@ -85,14 +87,20 @@
             class:ouvindo={previa?.caminho === f.caminho}
             aria-label={previa?.caminho === f.caminho ? "Parar pré-escuta" : "Pré-escuta"}
             title={previa?.caminho === f.caminho ? "Parar pré-escuta" : "Pré-escuta"}
-            onclick={() => (previa?.caminho === f.caminho ? api.previaParar() : api.previaTocar(f.caminho))}
+            onclick={(e) => {
+              e.stopPropagation();
+              previa?.caminho === f.caminho ? api.previaParar() : api.previaTocar(f.caminho);
+            }}
           >
             <Icone nome={previa?.caminho === f.caminho ? "stop" : "fone"} tamanho={18} />
           </button>
           {#if previa?.caminho === f.caminho}
             <span class="mini" style:width="{previa.duracao ? Math.min(100, (previaDecorrido / previa.duracao) * 100) : 0}%"></span>
           {/if}
-          <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(f.caminho, "musica")}>
+          <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={(e) => {
+              e.stopPropagation();
+              api.filaAdicionar(f.caminho, "musica");
+            }}>
             <Icone nome="plus" tamanho={18} />
           </button>
         </div>
@@ -107,11 +115,16 @@
 </section>
 
 <style>
+  .ouvindo-linha {
+    cursor: pointer;
+    background: #172033;
+  }
   .mini {
     position: absolute;
     left: 0;
     bottom: 0;
-    height: 3px;
+    height: 4px;
+    pointer-events: none;
     background: var(--azul);
   }
   .total {
@@ -157,7 +170,6 @@
   }
   .faixa {
     position: relative;
-    cursor: grab;
   }
   .faixa:hover {
     background: var(--painel-2);
