@@ -142,7 +142,7 @@ O programa precisa ser **bem leve**. Metas para um PC antigo (2 núcleos, 4 GB d
 
 ## 10. Fases (proposta)
 
-1. **Tocando** — programa abre, lê a pasta de músicas (índice + atualização automática), busca, fila com mínimo de 3, Tocando agora, botões, cartucheira, saída na caixa. **Medir memória/CPU aqui** para validar a meta de leveza.
+1. ✅ **Tocando** (feita em 15/11/2026, testada no Mac) — programa abre, lê a pasta de músicas (índice + atualização automática), busca, fila com mínimo de 3, Tocando agora, botões, cartucheira, saída na caixa. **Medir memória/CPU aqui** para validar a meta de leveza.
 2. **Agendamentos** — lista de músicas, comercial, comercial com ducking (detecta fala), hora certa, validade, rodízio, botão "Abaixar música".
 3. **Saídas** — pré-escuta, transmissão Icecast, gravação.
 4. **Acabamento** — tela de configurações, programas dos locutores, instalador `.deb`/AppImage.
