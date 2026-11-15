@@ -6,13 +6,32 @@
   import Cartucheira from "$lib/Cartucheira.svelte";
   import Musicas from "$lib/Musicas.svelte";
   import Fila from "$lib/Fila.svelte";
-  import Programas from "$lib/Programas.svelte";
+  import PastasNoAr from "$lib/PastasNoAr.svelte";
   import Agendamentos from "$lib/Agendamentos.svelte";
+  import AbaPastas from "$lib/AbaPastas.svelte";
+  import AbaCartucheira from "$lib/AbaCartucheira.svelte";
+  import AbaConfiguracoes from "$lib/AbaConfiguracoes.svelte";
+  import PedirSenha from "$lib/PedirSenha.svelte";
+  import type { Bloqueios } from "$lib/api";
 
   let r = $state<Retrato | null>(null);
   let recebidoEm = $state(Date.now());
   let agora = $state(new Date());
-  let aba = $state<"noar" | "agenda" | "config">("noar");
+  type Aba = "noar" | "agenda" | "pastas" | "cart" | "config";
+  let aba = $state<Aba>("noar");
+  const ABAS: { id: Aba; nome: string; trava?: keyof Bloqueios }[] = [
+    { id: "noar", nome: "No ar" },
+    { id: "agenda", nome: "Agendamentos", trava: "agendamentos" },
+    { id: "pastas", nome: "Pastas", trava: "pastas" },
+    { id: "cart", nome: "Cartucheira", trava: "cartucheira" },
+    { id: "config", nome: "Configurações", trava: "configuracoes" },
+  ];
+
+  // Senha: depois de desbloquear, vale até apertar o cadeado de novo.
+  let liberado = $state(false);
+  let senhaSessao = $state("");
+  const abaAtual = $derived(ABAS.find((a) => a.id === aba)!);
+  const travada = $derived(!!r?.protegido && !liberado && !!abaAtual.trava && r.bloqueios[abaAtual.trava]);
 
   function receber(novo: Retrato) {
     r = novo;
@@ -42,7 +61,7 @@
     return p.decorrido + (p.iniciada ? Math.max(0, (agora.getTime() - recebidoEm) / 1000) : 0);
   });
   const previaPrograma = $derived(
-    !!r?.previa && !!r.pasta_programas && r.previa.caminho.startsWith(r.pasta_programas),
+    !!r?.previa && r.pastas.some((p) => r!.previa!.caminho.startsWith(p.caminho + "/")),
   );
   const relogio = $derived(agora.toLocaleTimeString("pt-BR", { hour12: false }));
 </script>
@@ -51,11 +70,16 @@
   <header>
     <div class="marca"><span class="antena"><Icone nome="antenna" tamanho={20} /></span>Radio On Air</div>
     <nav>
-      <button class:on={aba === "noar"} onclick={() => (aba = "noar")}>No ar</button>
-      <button class:on={aba === "agenda"} onclick={() => (aba = "agenda")}>Agendamentos</button>
-      <button class:on={aba === "config"} onclick={() => (aba = "config")}>Configurações</button>
+      {#each ABAS as a}
+        <button class:on={aba === a.id} onclick={() => (aba = a.id)}>{a.nome}</button>
+      {/each}
     </nav>
     <div class="direita">
+      {#if r?.protegido && liberado}
+        <button class="cadeado" title="Bloquear de novo" aria-label="Bloquear" onclick={() => ((liberado = false), (senhaSessao = ""))}>
+          <Icone nome="aberto" tamanho={18} />
+        </button>
+      {/if}
       {#if r?.iniciando_motor}
         <span class="ligando">ligando o áudio…</span>
       {/if}
@@ -100,16 +124,19 @@
           {previaDecorrido}
         />
         <Fila fila={r.fila} lista={r.lista_ativa} />
-        <Programas pasta={r.pasta_programas} previa={previaPrograma ? r.previa : null} {previaDecorrido} />
+        <PastasNoAr pastas={r.pastas} previa={previaPrograma ? r.previa : null} {previaDecorrido} />
       </div>
     </main>
+  {:else if travada}
+    <PedirSenha area={abaAtual.nome} aoLiberar={(senha) => ((liberado = true), (senhaSessao = senha))} />
   {:else if aba === "agenda"}
     <Agendamentos />
+  {:else if aba === "pastas"}
+    <AbaPastas pastas={r.pastas} />
+  {:else if aba === "cart"}
+    <AbaCartucheira slots={r.cartucheira} />
   {:else}
-    <div class="em-breve">
-      <Icone nome="settings" tamanho={32} />
-      <p>Configurações chegam nas próximas fases.</p>
-    </div>
+    <AbaConfiguracoes {r} {senhaSessao} aoMudarSenha={(s) => ((senhaSessao = s), (liberado = s !== ""))} />
   {/if}
 </div>
 
@@ -168,6 +195,16 @@
     border-radius: 4px;
     letter-spacing: 0.04em;
   }
+  .cadeado {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--tag-comercial);
+  }
   .ligando {
     font-size: 13px;
     color: var(--texto-3);
@@ -212,13 +249,5 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 0.9fr);
     gap: 10px;
     min-height: 0;
-  }
-  .em-breve {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: var(--texto-3);
   }
 </style>

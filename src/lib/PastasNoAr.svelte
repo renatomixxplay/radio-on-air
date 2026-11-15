@@ -1,28 +1,23 @@
 <script lang="ts">
-  import { open } from "@tauri-apps/plugin-dialog";
+  // Painel "Pastas" da tela No ar: as pastas configuradas na aba Pastas.
   import { api, type Pasta, type Previa } from "./api";
   import Icone from "./Icone.svelte";
 
   let {
-    pasta,
+    pastas,
     previa,
     previaDecorrido,
-  }: { pasta: string | null; previa: Previa | null; previaDecorrido: number } = $props();
+  }: { pastas: Pasta[]; previa: Previa | null; previaDecorrido: number } = $props();
 
-  let pastas = $state<Pasta[]>([]);
   let escolhida = $state("");
   let arquivos = $state<Pasta[]>([]);
 
-  // Lê as pastas dos programas; mantém a escolhida se ela ainda existir.
+  // Mantém a escolhida se ela ainda existir.
   $effect(() => {
-    pasta;
-    api.programas().then((p) => {
-      pastas = p;
-      if (!p.some((x) => x.caminho === escolhida)) escolhida = p[0]?.caminho ?? "";
-    });
+    if (!pastas.some((x) => x.caminho === escolhida)) escolhida = pastas[0]?.caminho ?? "";
   });
 
-  // Arquivos do programa escolhido no seletor.
+  // Arquivos da pasta escolhida no seletor.
   $effect(() => {
     const c = escolhida;
     if (!c) {
@@ -40,34 +35,18 @@
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
     api.previaIr(((ev.clientX - r.left) / r.width) * previa.duracao);
   }
-
-  async function escolherPasta() {
-    const p = await open({ directory: true, multiple: false, title: "Pasta dos programas" });
-    if (typeof p === "string") await api.definirPasta("programas", p);
-  }
-
 </script>
 
 <section class="painel">
   <div class="rotulo">
-    <Icone nome="microphone" tamanho={14} />Programas
-    {#if pasta}
-      <button class="trocar" onclick={escolherPasta} title={`Pasta: ${pasta}\nClique para trocar`} aria-label="Trocar pasta de programas">
-        <Icone nome="folderOpen" tamanho={14} />
-      </button>
-    {/if}
+    <Icone nome="folder" tamanho={14} />Pastas
   </div>
 
-  {#if !pasta}
-    <div class="vazio">
-      Escolha a pasta dos programas<br />(uma subpasta por locutor).<br />
-      <button class="acao" onclick={escolherPasta}><Icone nome="folderOpen" tamanho={14} /> Escolher pasta</button>
-    </div>
-  {:else if pastas.length === 0}
-    <div class="vazio">Nenhum programa ainda.<br />Crie uma subpasta para cada locutor.</div>
+  {#if pastas.length === 0}
+    <div class="vazio">Nenhuma pasta ainda.<br />Adicione na aba Pastas.</div>
   {:else}
     <div class="seletor">
-      <select bind:value={escolhida} aria-label="Programa">
+      <select bind:value={escolhida} aria-label="Pasta">
         {#each pastas as p (p.caminho)}
           <option value={p.caminho}>{p.nome}</option>
         {/each}
@@ -161,17 +140,6 @@
   select:focus {
     border-color: var(--azul);
   }
-  .trocar {
-    margin-left: auto;
-    border: none;
-    background: transparent;
-    padding: 0 2px;
-    display: flex;
-    color: var(--texto-3);
-  }
-  .trocar:hover {
-    color: var(--texto);
-  }
   .item:hover {
     background: var(--painel-2);
   }
@@ -208,12 +176,5 @@
     color: #fff;
     background: #238636;
     border-color: #2ea043;
-  }
-  .acao {
-    margin-top: 10px;
-    padding: 6px 12px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
   }
 </style>

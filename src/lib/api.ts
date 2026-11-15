@@ -21,7 +21,10 @@ export interface Retrato {
   total_musicas: number;
   carregando: boolean;
   pasta_musicas: string | null;
-  pasta_programas: string | null;
+  pastas: Pasta[];
+  tocar_ao_abrir: boolean;
+  protegido: boolean;
+  bloqueios: Bloqueios;
   cartucheira: ({ nome: string; caminho: string } | null)[];
   motor_ok: boolean;
   iniciando_motor: boolean;
@@ -67,6 +70,13 @@ export interface Faixa {
   musica: string;
 }
 
+export interface Bloqueios {
+  agendamentos: boolean;
+  pastas: boolean;
+  cartucheira: boolean;
+  configuracoes: boolean;
+}
+
 export interface Pasta {
   nome: string;
   caminho: string;
@@ -91,6 +101,12 @@ export const api = {
   definirPasta: (qual: "musicas" | "programas", caminho: string) =>
     invoke<void>("definir_pasta", { qual, caminho }),
   atualizarMusicas: () => invoke<void>("atualizar_musicas"),
+  pastaAdicionar: (caminho: string) => invoke<void>("pasta_adicionar", { caminho }),
+  pastaRemover: (caminho: string) => invoke<void>("pasta_remover", { caminho }),
+  definirTocarAoAbrir: (valor: boolean) => invoke<void>("definir_tocar_ao_abrir", { valor }),
+  senhaConferir: (senha: string) => invoke<boolean>("senha_conferir", { senha }),
+  senhaDefinir: (atual: string, nova: string) => invoke<void>("senha_definir", { atual, nova }),
+  bloqueiosDefinir: (bloqueios: Bloqueios, senha: string) => invoke<void>("bloqueios_definir", { bloqueios, senha }),
   alternarRepetir: () => invoke<void>("alternar_repetir"),
   alternarDucking: () => invoke<void>("alternar_ducking"),
   previaTocar: (caminho: string) => invoke<void>("previa_tocar", { caminho }),

@@ -15,6 +15,29 @@ pub struct Config {
     pub pasta_programas: Option<PathBuf>,
     /// Arquivo de cada botão da cartucheira (sempre 8 posições).
     pub cartucheira: Vec<Option<PathBuf>>,
+    /// Pastas que aparecem no painel "Pastas" da tela No ar.
+    pub pastas: Vec<PathBuf>,
+    /// Entrar no ar sozinho ao abrir o programa.
+    pub tocar_ao_abrir: bool,
+    /// Senha (hash SHA-256) para mexer nas áreas bloqueadas. `None` = sem senha.
+    pub senha_hash: Option<String>,
+    pub bloqueios: Bloqueios,
+}
+
+/// Áreas que pedem senha quando a proteção está ligada.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Bloqueios {
+    pub agendamentos: bool,
+    pub pastas: bool,
+    pub cartucheira: bool,
+    pub configuracoes: bool,
+}
+
+pub fn hash_senha(senha: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let d = Sha256::digest(format!("radio-on-air:{senha}").as_bytes());
+    d.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 impl Default for Config {
@@ -23,6 +46,10 @@ impl Default for Config {
             pasta_musicas: None,
             pasta_programas: None,
             cartucheira: vec![None; SLOTS_CARTUCHEIRA],
+            pastas: vec![],
+            tocar_ao_abrir: false,
+            senha_hash: None,
+            bloqueios: Bloqueios::default(),
         }
     }
 }
@@ -38,6 +65,14 @@ impl Config {
             .and_then(|txt| serde_json::from_str(&txt).ok())
             .unwrap_or_default();
         cfg.cartucheira.resize(SLOTS_CARTUCHEIRA, None);
+        // Antes havia uma "pasta de programas" com subpastas: vira a lista de pastas.
+        if cfg.pastas.is_empty() {
+            if let Some(raiz) = cfg.pasta_programas.take() {
+                if let Ok(rd) = fs::read_dir(&raiz) {
+                    cfg.pastas = rd.filter_map(Result::ok).map(|d| d.path()).filter(|p| p.is_dir()).collect();
+                }
+            }
+        }
         cfg
     }
 

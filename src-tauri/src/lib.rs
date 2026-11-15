@@ -155,7 +155,12 @@ struct Retrato {
     total_musicas: usize,
     carregando: bool,
     pasta_musicas: Option<String>,
-    pasta_programas: Option<String>,
+    /// Pastas do painel "Pastas", em ordem alfabética.
+    pastas: Vec<Pasta>,
+    tocar_ao_abrir: bool,
+    /// Tem senha definida.
+    protegido: bool,
+    bloqueios: config::Bloqueios,
     cartucheira: Vec<Option<CartuchoDto>>,
     motor_ok: bool,
     iniciando_motor: bool,
@@ -182,7 +187,22 @@ impl Estado {
             total_musicas: self.bib.total(),
             carregando: self.carregando,
             pasta_musicas: caminho(&self.config.pasta_musicas),
-            pasta_programas: caminho(&self.config.pasta_programas),
+            pastas: {
+                let mut v: Vec<Pasta> = self
+                    .config
+                    .pastas
+                    .iter()
+                    .map(|p| Pasta {
+                        nome: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                        caminho: p.to_string_lossy().into_owned(),
+                    })
+                    .collect();
+                v.sort_by(|a, b| ordem::natural(&a.nome, &b.nome));
+                v
+            },
+            tocar_ao_abrir: self.config.tocar_ao_abrir,
+            protegido: self.config.senha_hash.is_some(),
+            bloqueios: self.config.bloqueios.clone(),
             cartucheira: self
                 .config
                 .cartucheira
@@ -595,6 +615,10 @@ fn carregar_biblioteca(app: AppHandle, estado: Compartilhado, forcar_varredura: 
         e.carregando = false;
         e.vigia = vigiar(&app, &estado, &raiz);
         completar_fila(&app, &estado, &mut e);
+        // "Tocar ao abrir": se o motor já está pronto, começa assim que há músicas.
+        if e.no_ar && !e.pausado && e.tocando.is_none() {
+            e.enviar_proximo();
+        }
         emitir(&app, &e);
     });
 }
@@ -648,7 +672,7 @@ fn buscar(estado: State<Compartilhado>, termo: String) -> Vec<FaixaDto> {
     travar(&estado).bib.buscar(&termo, 200)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct Pasta {
     nome: String,
     caminho: String,
@@ -662,20 +686,76 @@ struct Arquivo {
 
 #[tauri::command]
 fn programas(estado: State<Compartilhado>) -> Vec<Pasta> {
-    let Some(raiz) = travar(&estado).config.pasta_programas.clone() else { return vec![] };
-    let mut v: Vec<Pasta> = std::fs::read_dir(&raiz)
-        .map(|rd| {
-            rd.filter_map(Result::ok)
-                .filter(|d| d.path().is_dir())
-                .map(|d| Pasta {
-                    nome: d.file_name().to_string_lossy().into_owned(),
-                    caminho: d.path().to_string_lossy().into_owned(),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    v.sort_by(|a, b| ordem::natural(&a.nome, &b.nome));
-    v
+    travar(&estado).retrato().pastas
+}
+
+#[tauri::command]
+fn pasta_adicionar(app: AppHandle, estado: State<Compartilhado>, caminho: String) -> Result<(), String> {
+    let mut e = travar(&estado);
+    let p = PathBuf::from(caminho);
+    if !e.config.pastas.contains(&p) {
+        e.config.pastas.push(p);
+        e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    }
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn pasta_remover(app: AppHandle, estado: State<Compartilhado>, caminho: String) -> Result<(), String> {
+    let mut e = travar(&estado);
+    e.config.pastas.retain(|p| p != Path::new(&caminho));
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn definir_tocar_ao_abrir(app: AppHandle, estado: State<Compartilhado>, valor: bool) -> Result<(), String> {
+    let mut e = travar(&estado);
+    e.config.tocar_ao_abrir = valor;
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
+fn senha_confere(e: &Estado, senha: &str) -> bool {
+    e.config.senha_hash.as_deref().is_none_or(|h| h == config::hash_senha(senha))
+}
+
+#[tauri::command]
+fn senha_conferir(estado: State<Compartilhado>, senha: String) -> bool {
+    senha_confere(&travar(&estado), &senha)
+}
+
+/// Cria, troca ou remove (nova vazia) a senha. Pede a atual se já houver uma.
+#[tauri::command]
+fn senha_definir(app: AppHandle, estado: State<Compartilhado>, atual: String, nova: String) -> Result<(), String> {
+    let mut e = travar(&estado);
+    if !senha_confere(&e, &atual) {
+        return Err("Senha atual incorreta.".into());
+    }
+    e.config.senha_hash = (!nova.is_empty()).then(|| config::hash_senha(&nova));
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn bloqueios_definir(
+    app: AppHandle,
+    estado: State<Compartilhado>,
+    bloqueios: config::Bloqueios,
+    senha: String,
+) -> Result<(), String> {
+    let mut e = travar(&estado);
+    if !senha_confere(&e, &senha) {
+        return Err("Senha incorreta.".into());
+    }
+    e.config.bloqueios = bloqueios;
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
 }
 
 #[tauri::command]
@@ -954,7 +1034,6 @@ fn definir_pasta(app: AppHandle, estado: State<Compartilhado>, qual: String, cam
         let p = Some(PathBuf::from(&caminho));
         match qual.as_str() {
             "musicas" => e.config.pasta_musicas = p,
-            "programas" => e.config.pasta_programas = p,
             _ => return Err("pasta desconhecida".into()),
         }
         e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
@@ -983,12 +1062,12 @@ pub fn run() {
             let lista_ativa = agenda::lista_vigente(&agenda);
             let estado: Compartilhado = Arc::new(Mutex::new(Estado {
                 dir,
-                config,
+                config: config.clone(),
                 bib: Biblioteca::default(),
                 carregando: false,
                 fila: vec![],
                 tocando: None,
-                no_ar: false,
+                no_ar: config.tocar_ao_abrir,
                 pausado: false,
                 saida_parada: false,
                 repetir: false,
@@ -1037,6 +1116,12 @@ pub fn run() {
             previa_tocar,
             previa_parar,
             previa_ir,
+            pasta_adicionar,
+            pasta_remover,
+            definir_tocar_ao_abrir,
+            senha_conferir,
+            senha_definir,
+            bloqueios_definir,
             agendamentos,
             agendamento_salvar,
             agendamento_remover,

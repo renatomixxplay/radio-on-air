@@ -31,7 +31,7 @@ Software de automação de rádio (rádio DJ) para Linux, open source, feito par
 
 ## 3. Telas
 
-Navegação no topo: **No ar · Agendamentos · Configurações**.
+Navegação no topo: **No ar · Agendamentos · Pastas · Cartucheira · Configurações**.
 
 ### 3.1 No ar (tela principal) ✅
 
@@ -55,7 +55,7 @@ Navegação no topo: **No ar · Agendamentos · Configurações**.
 - **Cartucheira:** 8 botões **fixos** (sem páginas) para vinhetas e efeitos.
 - **Músicas** (esquerda): busca por música ou artista; lista sem duração.
 - **Fila** (meio): até 10 itens, com horário previsto, tipo (música, vinheta, comercial, programa) e duração.
-- **Programas** (direita): pastas dos locutores.
+- **Pastas** (direita): seletor com as pastas configuradas na aba Pastas (ordem alfabética), pré-escuta e ➕.
 
 ### 3.2 Agendamentos ✅ (esboço feito, aguardando aprovação do visual)
 
@@ -63,9 +63,17 @@ Navegação no topo: **No ar · Agendamentos · Configurações**.
 - Filtro por dia da semana.
 - Painel lateral para criar/editar.
 
-### 3.3 Configurações ✅ (esboço feito, aguardando aprovação do visual)
+### 3.3 Pastas ✅
+- Lista das pastas que aparecem no painel Pastas da tela No ar (adicionar/tirar).
 
-Seções: Pastas · Áudio · Transmissão · Gravação · Fila · Cartucheira · Rádio.
+### 3.4 Cartucheira ✅
+- Configura o áudio de cada um dos 8 botões (escolher, trocar, esvaziar).
+
+### 3.5 Configurações ✅ (parte feita)
+- ✅ **Entrar no ar sozinho** ao abrir o programa.
+- ✅ Pasta de músicas e botão **Atualizar músicas**.
+- ✅ **Senha** (criar, trocar, remover) e **bloqueios**: Agendamentos, Pastas, Cartucheira e Configurações pedem senha quando ligados. Desbloqueia uma vez e vale até apertar o cadeado.
+- ❓ Ainda por alinhar: áudio (saídas/pré-escuta), transmissão, gravação, sugestões de fila.
 
 ## 4. Músicas e índice
 

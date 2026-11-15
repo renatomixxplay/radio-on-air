@@ -27,11 +27,13 @@
   import abrir from "@tabler/icons/outline/chevron-down.svg?raw";
   import megafone from "@tabler/icons/outline/speakerphone.svg?raw";
   import relogio from "@tabler/icons/outline/clock.svg?raw";
+  import cadeado from "@tabler/icons/outline/lock.svg?raw";
+  import aberto from "@tabler/icons/outline/lock-open.svg?raw";
   import ducking from "@tabler/icons/outline/microphone-2.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
-    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio,
+    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto,
   };
   export type NomeIcone = keyof typeof icones;
 </script>
