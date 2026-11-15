@@ -51,8 +51,8 @@
     </div>
 
     <div class="botoes">
-      <button class="com-texto" class:ligado={ducking} onclick={api.alternarDucking} title="Abaixa a música para o locutor falar">
-        <Icone nome="ducking" tamanho={18} /> Ducking
+      <button class:ligado={ducking} onclick={api.alternarDucking} title="Ducking: abaixa a música para o locutor falar" aria-label="Ducking">
+        <Icone nome="ducking" tamanho={20} />
       </button>
       {#if noAr && !pausado}
         <button onclick={api.pausar} title="Pausar" aria-label="Pausar"><Icone nome="pause" tamanho={20} /></button>

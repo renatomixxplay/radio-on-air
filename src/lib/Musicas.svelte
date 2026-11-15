@@ -88,10 +88,10 @@
             title="Pré-escuta"
             onclick={() => (previa?.caminho === f.caminho ? api.previaParar() : api.previaTocar(f.caminho))}
           >
-            <Icone nome="fone" tamanho={16} />
+            <Icone nome="fone" tamanho={18} />
           </button>
           <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={() => api.filaAdicionar(f.caminho, "musica")}>
-            <Icone nome="plus" tamanho={16} />
+            <Icone nome="plus" tamanho={18} />
           </button>
         </div>
       {:else}
@@ -157,8 +157,8 @@
     font-size: 13px;
   }
   .acao-linha {
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     flex: none;
     padding: 0;
     border-radius: 8px;
