@@ -168,7 +168,6 @@ Medido no Mac (versão de desenvolvimento), tocando: programa ~30 MB, tela ~55 M
 - ❓ Sugestões 💡 da fila (repetição, crossfade) e do histórico.
 - ❓ Configurações de áudio, transmissão e gravação (Fase 3).
 - ❓ Limite do inotify no Linux com muitas subpastas.
-- 🧹 Na sua máquina há **5 agendamentos de teste** (11:04–11:07) apontando para pastas temporárias — apagar.
 
 ## 12. O que testar (🧪)
 
