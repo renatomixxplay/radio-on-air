@@ -37,6 +37,11 @@
   <div class="rotulo">
     <Icone nome="music" tamanho={14} />Músicas
     <span class="total">{carregando ? "lendo pastas…" : total.toLocaleString("pt-BR")}</span>
+    {#if pasta}
+      <button class="trocar" onclick={escolherPasta} title={`Pasta: ${pasta}\nClique para trocar`} aria-label="Trocar pasta de músicas">
+        <Icone nome="folderOpen" tamanho={14} />
+      </button>
+    {/if}
   </div>
 
   {#if !pasta}
@@ -82,6 +87,16 @@
     margin-left: auto;
     font-family: var(--mono);
     font-size: 11px;
+  }
+  .trocar {
+    border: none;
+    background: transparent;
+    padding: 0 2px;
+    display: flex;
+    color: var(--texto-3);
+  }
+  .trocar:hover {
+    color: var(--texto);
   }
   .busca {
     display: flex;

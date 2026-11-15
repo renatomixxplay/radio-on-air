@@ -39,6 +39,11 @@
       <span class="reticencias">{aberta.nome}</span>
     {:else}
       <Icone nome="microphone" tamanho={14} />Programas
+      {#if pasta}
+        <button class="trocar" onclick={escolherPasta} title={`Pasta: ${pasta}\nClique para trocar`} aria-label="Trocar pasta de programas">
+          <Icone nome="folderOpen" tamanho={14} />
+        </button>
+      {/if}
     {/if}
   </div>
 
@@ -82,6 +87,17 @@
 </section>
 
 <style>
+  .trocar {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    padding: 0 2px;
+    display: flex;
+    color: var(--texto-3);
+  }
+  .trocar:hover {
+    color: var(--texto);
+  }
   .voltar {
     border: none;
     background: transparent;
