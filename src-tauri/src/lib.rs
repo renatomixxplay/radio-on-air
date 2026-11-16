@@ -24,9 +24,18 @@ const FILA_MAXIMO: usize = 10;
 /// O automático garante este mínimo: quando a fila chega a 3, puxa mais uma.
 const FILA_MINIMO: usize = 3;
 /// Quantos segundos antes do fim a próxima faixa é entregue ao motor.
-/// Folga para o motor analisar a música (corte de silêncio e volume, ~3 s) e
-/// misturar com a anterior.
-const ANTECEDENCIA: f64 = 15.0;
+/// Nada é analisado (começa na hora): basta chegar antes do crossfade de 2 s.
+const ANTECEDENCIA: f64 = 5.0;
+/// Ducking que esperou: entra este tempo depois que a próxima música começa.
+const DUCKING_DEPOIS: f64 = 10.0;
+/// Ducking esperando há mais que isso (rádio parada, link no ar) é descartado.
+const DUCKING_VALIDADE: Duration = Duration::from_secs(600);
+/// Com menos que isso para acabar, o botão Repetir não liga (a próxima já
+/// pode ter ido para o motor).
+const REPETIR_MINIMO: f64 = 10.0;
+/// Fim da fala com a música repetindo: ela volta ao normal e toca mais este
+/// tempo antes do fade para a próxima.
+const DEPOIS_DO_DUCKING: Duration = Duration::from_secs(10);
 /// Volume da música com o botão de ducking ligado (0.2 = 20%).
 const DUCKING_NIVEL: f64 = 0.2;
 
@@ -85,6 +94,13 @@ impl Previa {
     }
 }
 
+struct DuckingAdiado {
+    arquivos: Vec<PathBuf>,
+    /// O que tocava quando chegou: o ducking entra na música seguinte.
+    depois_de: Option<u64>,
+    desde: Instant,
+}
+
 pub struct Estado {
     dir: PathBuf,
     config: Config,
@@ -114,6 +130,11 @@ pub struct Estado {
     pendentes: Vec<Item>,
     /// Repetição ligada sozinha porque o ducking não cabia no fim da música.
     repetir_auto: bool,
+    /// Ducking que chegou com a próxima já entregue (ou sem música tocando):
+    /// espera a próxima música e entra `DUCKING_DEPOIS` segundos depois.
+    ducking_adiado: Option<DuckingAdiado>,
+    /// Conta os fins de ducking: a troca marcada só vale se for a última.
+    vez_ducking: u64,
     prox_id: u64,
     motor: Option<Motor>,
     /// O motor está sendo ligado em segundo plano.
@@ -328,7 +349,9 @@ impl Estado {
     fn entregar_com_vinheta(&mut self) -> bool {
         let entre_musicas = self.tocando.as_ref().is_some_and(|t| t.item.tipo == Tipo::Musica)
             && self.fila.first().is_some_and(|i| i.tipo == Tipo::Musica);
-        if !self.config.vinheta_entre_musicas || !entre_musicas || !self.pendentes.is_empty() || self.link.is_some() {
+        // Com ducking (falando por cima ou repetindo a música) não entra vinheta.
+        let ducking = self.por_cima.is_some() || self.repetir_auto;
+        if !self.config.vinheta_entre_musicas || !entre_musicas || !self.pendentes.is_empty() || self.link.is_some() || ducking {
             return false;
         }
         let Some(arq) = self.sortear_vinheta() else { return false };
@@ -479,7 +502,7 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
             });
             if caminho.is_empty() && e.repetir_auto {
                 e.repetir_auto = false;
-                fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 });
+                trocar_depois_do_ducking(app, estado, &mut e);
             }
         }
         EventoMotor::Previa(caminho) => {
@@ -695,6 +718,18 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
         if !e.no_ar || e.pausado {
             continue;
         }
+        if let Some(ad) = &e.ducking_adiado {
+            let na_proxima = e.tocando.as_ref().is_some_and(|t| {
+                t.item.tipo == Tipo::Musica && Some(t.item.id) != ad.depois_de && t.decorrido() >= DUCKING_DEPOIS
+            });
+            if ad.desde.elapsed() > DUCKING_VALIDADE {
+                e.ducking_adiado = None;
+            } else if na_proxima && e.link.is_none() && !e.tem_entregue() {
+                let ad = e.ducking_adiado.take().expect("adiado");
+                falar_por_cima(&mut e, ad.arquivos);
+                emitir(&app, &e);
+            }
+        }
         let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
         if !falta.is_some_and(|f| f <= ANTECEDENCIA) {
             continue;
@@ -733,6 +768,8 @@ fn fade_e_proxima(app: AppHandle, estado: Compartilhado, volume_normal: f64) {
             let _ = m.esvaziar_e_pular();
             let _ = m.volume(volume_normal);
         }
+        // Como no Passar: vai direto para a próxima, sem a vinheta que esperava.
+        e.pendentes.retain(|i| i.tipo != Tipo::Vinheta);
         e.repeticao_enviada = false;
         e.destravar_tudo();
         emitir(&app, &e);
@@ -791,18 +828,17 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
         TipoAgenda::Ducking => {
             let dir = e.dir.clone();
             let arquivos = agenda::montar_bloco(ag, &mut e.rodizio, &dir);
-            // Se o bloco não cabe no que falta da música, a música repete por baixo
-            // e, quando a fala acabar, sai com fade de 3 s para a próxima.
-            let total: f64 = arquivos.iter().filter_map(|p| analise::duracao(p)).sum();
-            let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
-            if falta.is_some_and(|f| total > f - 1.0) {
-                e.repetir_auto = true;
+            if arquivos.is_empty() {
+                return;
             }
-            let bloco: Vec<String> = arquivos.into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
-            if let Some(m) = &e.motor {
-                if let Err(err) = m.falar(&bloco) {
-                    e.erro_motor = Some(err);
-                }
+            // Entra agora só com música tocando e nada entregue ao motor ainda.
+            // Senão (fim da música, a próxima já foi), espera a próxima música.
+            let musica = e.tocando.as_ref().is_some_and(|t| t.item.tipo == Tipo::Musica);
+            if musica && !e.tem_entregue() {
+                falar_por_cima(e, arquivos);
+            } else {
+                let depois_de = e.tocando.as_ref().map(|t| t.item.id);
+                e.ducking_adiado = Some(DuckingAdiado { arquivos, depois_de, desde: Instant::now() });
             }
         }
         TipoAgenda::HoraCerta => {
@@ -820,6 +856,48 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
     }
 }
 
+/// A fala acabou com a música repetindo: ela volta ao volume normal, toca
+/// mais `DEPOIS_DO_DUCKING` e então sai com fade para a próxima. Se nesse meio
+/// tempo a música mudou (Próximo, acabou sozinha) ou entrou outro ducking ou
+/// link, a troca não acontece.
+fn trocar_depois_do_ducking(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    e.vez_ducking += 1;
+    let vez = e.vez_ducking;
+    let musica = e.tocando.as_ref().map(|t| t.item.id);
+    let (app, estado) = (app.clone(), estado.clone());
+    std::thread::spawn(move || {
+        std::thread::sleep(DEPOIS_DO_DUCKING);
+        let e = travar(&estado);
+        let mesma = e.tocando.as_ref().map(|t| t.item.id) == musica;
+        if e.vez_ducking != vez || !mesma || !e.no_ar || e.pausado || e.link.is_some() || e.repetir_auto {
+            return;
+        }
+        let volume = if e.ducking { DUCKING_NIVEL } else { 1.0 };
+        drop(e);
+        fade_e_proxima(app, estado, volume);
+    });
+}
+
+/// Comercial com ducking por cima da música. Se o bloco não cabe no que
+/// falta, a música repete por baixo e, quando a fala acabar, sai com fade de
+/// 3 s para a próxima. Só é chamado sem nada entregue ao motor, então a
+/// repetição vem logo depois da música.
+fn falar_por_cima(e: &mut Estado, arquivos: Vec<PathBuf>) {
+    // Uma troca marcada por um ducking anterior não vale mais.
+    e.vez_ducking += 1;
+    let total: f64 = arquivos.iter().filter_map(|p| analise::duracao(p)).sum();
+    let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
+    if falta.is_some_and(|f| total > f - 1.0) {
+        e.repetir_auto = true;
+    }
+    let bloco: Vec<String> = arquivos.into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    if let Some(m) = &e.motor {
+        if let Err(err) = m.falar(&bloco) {
+            e.erro_motor = Some(err);
+        }
+    }
+}
+
 /// Entra o link: fade na música, abertura (se tiver) e o link.
 fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agendamento) {
     let Some(url) = ag.url.clone() else { return };
@@ -829,8 +907,10 @@ fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Ag
             let _ = m.link_desligar();
         }
     }
-    // Comercial e hora certa que esperavam a música acabar ficam de fora.
+    // Comercial e hora certa que esperavam a música acabar ficam de fora
+    // (e o ducking que esperava a próxima música também).
     e.pendentes.clear();
+    e.ducking_adiado = None;
     e.repetir_auto = false;
     e.repeticao_enviada = false;
     let dir = e.dir.clone();
@@ -1379,6 +1459,11 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
 #[tauri::command]
 fn alternar_repetir(app: AppHandle, estado: State<Compartilhado>) {
     let mut e = travar(&estado);
+    // Ligar só com tempo de sobra: perto do fim a próxima já pode ter ido ao motor.
+    let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
+    if !e.repetir && falta.is_some_and(|f| f < REPETIR_MINIMO) {
+        return;
+    }
     e.repetir = !e.repetir;
     emitir(&app, &e);
 }
@@ -1563,6 +1648,8 @@ pub fn run() {
                 por_cima: None,
                 pendentes: vec![],
                 repetir_auto: false,
+                ducking_adiado: None,
+                vez_ducking: 0,
                 prox_id: 0,
                 motor: None,
                 iniciando_motor: false,

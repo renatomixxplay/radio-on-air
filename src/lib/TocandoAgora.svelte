@@ -35,6 +35,8 @@
   /** Comercial e hora certa não podem ser pulados. */
   const agendado = $derived(item?.tipo === "comercial" || item?.tipo === "hora_certa");
   /** Últimos 10 segundos: a barra fica vermelha. */
+  /** Perto do fim não dá para ligar o Repetir (a próxima já pode ter ido). */
+  const semTempoRepetir = $derived(!repetir && !repetirAuto && falta != null && falta < 10);
   const acabando = $derived(item != null && falta != null && falta <= 10);
 </script>
 
@@ -92,7 +94,12 @@
       <button
         class:ligado={repetir || repetirAuto}
         onclick={api.alternarRepetir}
-        title={repetirAuto ? "Repetindo sozinho enquanto o comercial fala" : "Repetir a música atual"}
+        disabled={semTempoRepetir}
+        title={repetirAuto
+          ? "Repetindo sozinho enquanto o comercial fala"
+          : semTempoRepetir
+            ? "Faltando menos de 10 s não dá para repetir"
+            : "Repetir a música atual"}
         aria-label="Repetir"
       >
         <Icone nome="repetir" tamanho={20} />

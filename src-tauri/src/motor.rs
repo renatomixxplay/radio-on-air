@@ -4,10 +4,11 @@
 //! por vez, poucos segundos antes da atual acabar. O Liquidsoap avisa pelo stdout
 //! (`@@FAIXA <arquivo>`) quando uma faixa começa a tocar.
 //!
-//! Músicas entram com `autocue:`: o Liquidsoap corta o silêncio do começo e do
-//! fim, iguala o volume e mistura 1 s com a próxima música. O resto (comercial,
-//! vinheta, hora certa, cartucheira) entra com `volume:`: só iguala o volume e
-//! toca inteiro, sem mistura.
+//! Os arquivos já vêm preparados (silêncio cortado, volume igual): o motor não
+//! analisa nada, por isso tudo começa na hora. Músicas entram marcadas como
+//! `tipo="musica"` e se misturam com a próxima música (crossfade fixo de 2 s);
+//! o resto (comercial, vinheta, hora certa, cartucheira) toca inteiro, em
+//! sequência.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -166,30 +167,19 @@ settings.server.telnet.set(true)
 settings.server.telnet.bind_addr.set("127.0.0.1")
 settings.server.telnet.port.set({porta})
 
-# Ar: fila de músicas (com volume controlável para o ducking) + cartucheira por cima.
-# Músicas (autocue): corta o silêncio do começo/fim, iguala o volume e mistura
-# no máximo 1 s com a próxima música.
-settings.autocue.internal.max_overlap.set(1.)
-# Protocolo "volume:": mede o arquivo e só iguala o volume (sem cortar nada).
-def protocolo_volume(~rlog:_, ~maxtime:_, arq) =
-  medidas = file.autocue.metadata(request_metadata=[], arq)
-  amp = medidas["liq_amplify"]
-  if amp == "" then arq else "annotate:liq_amplify=#{{string.quote(amp)}}:#{{arq}}" end
-end
-protocol.add("volume", protocolo_volume, doc="Só iguala o volume", syntax="volume:arquivo")
+# Ar: fila (músicas, comerciais, vinhetas; volume controlável para o ducking)
+# + cartucheira por cima. Os arquivos já vêm preparados: nada é analisado.
 fila_q = request.queue(id="fila")
-cart = amplify(override="liq_amplify", 1., request.queue(id="cart"))
-# Só mistura quando as duas faixas são músicas analisadas; o resto toca em sequência.
+cart = request.queue(id="cart")
+# Crossfade fixo de 2 s só entre duas músicas; o resto toca em sequência.
 def transicao(a, b) =
-  if a.metadata["liq_autocue"] != "" and b.metadata["liq_autocue"] != "" then
-    cross.simple(fade_in=0., fade_out=1., initial_fade_in_metadata=b.metadata, initial_fade_out_metadata=a.metadata, a.source, b.source)
+  if a.metadata["tipo"] == "musica" and b.metadata["tipo"] == "musica" then
+    cross.simple(fade_in=2., fade_out=2., a.source, b.source)
   else
     sequence([a.source, b.source])
   end
 end
-# O volume de cada faixa é aplicado ANTES da emenda: depois dela, o último
-# pedaço da faixa perde o ajuste e tocava no volume original (mais alto).
-fila = cross(duration=1., transicao, amplify(override="liq_amplify", 1., fila_q))
+fila = cross(duration=2., transicao, fila_q)
 musica = fallback(id="musica", track_sensitive=false, [fila, blank(id="silencio")])
 # A troca de faixa sem mistura gera uma "faixa vazia" de passagem com a fila
 # pronta: só avisa silêncio quando a fila acabou de verdade.
@@ -202,7 +192,6 @@ musica.on_track(synchronous=true, fun (m) ->
 # Comercial com ducking: toca por cima. A música abaixa para 20% enquanto há voz
 # (e até 1,5 s depois, para não subir entre um arquivo e outro) e volta suave.
 fala = request.queue(id="fala")
-fala = amplify(override="liq_amplify", 1., fala)
 fala = rms(duration=0.2, fala)
 fala_ar = fallback(track_sensitive=false, [fala, blank()])
 fala_ar.on_track(synchronous=true, fun (m) -> print("@@FALA #{{m['filename']}}"))
@@ -347,10 +336,10 @@ impl Motor {
         Ok(resp)
     }
 
-    /// Entrega uma faixa ao ar. Música vai com `autocue:` (corte de silêncio,
-    /// volume igual e mistura); o resto com `volume:` (só volume igual).
+    /// Entrega uma faixa ao ar. Música vai marcada (`tipo="musica"`) para se
+    /// misturar com a próxima música; o resto vai como está e toca inteiro.
     pub fn enfileirar(&self, caminho: &str, musica: bool) -> Result<(), String> {
-        let prefixo = if musica { "autocue:" } else { "volume:" };
+        let prefixo = if musica { "annotate:tipo=\"musica\":" } else { "" };
         self.comando(&format!("fila.push {prefixo}{}", crate::sistema::para_motor(caminho))).map(|_| ())
     }
 
@@ -403,13 +392,13 @@ impl Motor {
     /// Toca arquivos por cima da música, em sequência (comercial com ducking).
     pub fn falar(&self, caminhos: &[String]) -> Result<(), String> {
         for c in caminhos {
-            self.comando(&format!("fala.push volume:{}", crate::sistema::para_motor(c)))?;
+            self.comando(&format!("fala.push {}", crate::sistema::para_motor(c)))?;
         }
         Ok(())
     }
 
     pub fn cartucho(&self, caminho: &str) -> Result<(), String> {
-        self.comando(&format!("cart.push volume:{}", crate::sistema::para_motor(caminho))).map(|_| ())
+        self.comando(&format!("cart.push {}", crate::sistema::para_motor(caminho))).map(|_| ())
     }
 
     pub fn pausar(&self) -> Result<(), String> {
@@ -450,3 +439,4 @@ mod testes {
         assert!(saida.status.success(), "{}{}", String::from_utf8_lossy(&saida.stdout), String::from_utf8_lossy(&saida.stderr));
     }
 }
+
