@@ -99,9 +99,9 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 
 ### 3.2 Agendamentos ✅
 
-- Lista (cada agendamento em um cartão): horário, ícone do tipo, pastas e dias (S T Q Q S S D).
+- Lista (cada agendamento em um cartão): ícone do tipo, pastas com os horários embaixo, numa linha só (08:00 · 12:00 · 18:00 e "+N" para os que não cabem) e, embaixo, só os dias ativos (Seg · Qua · Sex; "Todos os dias" e "Seg a Sex" quando for o caso).
 - Filtro por dia da semana; botão **Novo**.
-- Editor ao lado: horário, dias, tipo (Lista · Comercial · Com ducking · Hora certa), pastas anexadas (arrastar para reordenar, **Todos / Só um**), salvar e excluir.
+- Editor ao lado: horários (em fileira, cada um com ✕ para tirar e **+** para incluir outro; os dias e pastas valem para todos), dias, tipo (Lista · Comercial · Com ducking · Hora certa), pastas anexadas (arrastar para reordenar, **Todos / Só um**), salvar e excluir.
 
 ### 3.3 Pastas ✅
 - Pastas que aparecem no painel Pastas do No ar (adicionar várias de uma vez, tirar). Ordem alfabética.
@@ -148,8 +148,9 @@ Por **horário + dias da semana**. O programa só preenche/executa — não exis
 
 - **Agendamento não entra na fila e não se pula:** comercial e hora certa tocam numa sequência própria antes da fila. Passar não pula agendamento; se pular uma música, o comercial que estava esperando continua garantido.
 - Fora do ar, comercial e hora certa **não são guardados** para depois (lista de músicas vale mesmo fora do ar).
-- **Ativar/desativar:** chave ao lado de cada agendamento na lista. Desativado fica apagadinho, **não toca** e **não ocupa o horário** (dá para criar outro no mesmo horário). Ao ativar de novo, confere conflito e avisa se o horário já está ocupado.
-- **Nunca dois agendamentos no mesmo horário** num mesmo dia (salvar avisa). A **hora certa** pode cair junto com qualquer outro e toca primeiro.
+- **Ativar/desativar:** chave "Ativo" dentro do editor, antes dos horários (vale ao salvar). Desativado fica apagadinho, **não toca** e **não ocupa o horário** (dá para criar outro no mesmo horário). Ao ativar de novo, confere conflito e avisa se o horário já está ocupado.
+- **Vários horários** num agendamento: toca em cada um deles, nos dias marcados.
+- **Mesmo horário e dia:** comercial entra em fila e pode cair junto com qualquer outro. **Bloqueado** (salvar avisa): dois **ducking** juntos, e **lista com lista, link com link ou lista com link** (um desfaria o outro). A **hora certa** é uma só, pode cair junto com qualquer outro e toca primeiro.
 - Voz da hora certa que a rádio usa: `audios/Hora Certa (Voz Fem)/` no projeto.
 - Várias **pastas** por agendamento, tocando **na ordem anexada**; cada pasta **Todos** ou **Só um** (rodízio salvo).
 - **Só um:** arquivo **com data** (ainda válida) tem prioridade sobre os sem data; com vários de data, rodízio entre eles. Sem nenhum com data, rodízio dos sem data. Vale também para abertura e comercial da hora certa.
@@ -215,7 +216,8 @@ Nada disso foi testado de ouvido ou clicando por completo:
 - [ ] Hora certa com `audios/Hora Certa (Voz Fem)` (HRS + MIN), a cada X minutos, abertura + hora + comercial da hora; hora falada certa no fim da música.
 - [ ] Só dá para criar uma hora certa; opções Hora cheia e 30 min.
 - [ ] Novo agendamento já vem com todos os dias marcados.
-- [ ] Salvar dois agendamentos no mesmo horário e dia é bloqueado; hora certa junto com comercial toca antes.
+- [ ] Dois ducking (ou duas listas, ou lista e link) no mesmo horário e dia é bloqueado; dois comerciais juntos tocam em sequência; hora certa junto com comercial toca antes.
+- [ ] Agendamento com vários horários toca em cada um.
 - [ ] Só um: arquivo com data toca no lugar dos sem data.
 - [ ] Lista de músicas trocando de pasta no horário: fila limpa com músicas novas; Aguardar e Imediato.
 - [ ] Link: fade, abertura, link no ar; internet cai = silêncio e volta sozinho; lista seguinte encerra com fade; comercial/hora certa no meio não tocam.

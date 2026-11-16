@@ -53,8 +53,9 @@ pub struct PastaAnexada {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agendamento {
     pub id: u64,
-    /// "HH:MM"
-    pub horario: String,
+    /// "HH:MM", em ordem e sem repetir. A hora certa não usa.
+    #[serde(default)]
+    pub horarios: Vec<String>,
     /// Segunda a domingo.
     pub dias: [bool; 7],
     pub tipo: TipoAgenda,
@@ -88,22 +89,33 @@ fn ativo_padrao() -> bool {
 /// Intervalos da hora certa: a cada 30 min ou só na hora cheia.
 pub const INTERVALOS: [u32; 2] = [30, 60];
 
-impl Agendamento {
-    pub fn hora_minuto(&self) -> Option<(u32, u32)> {
-        let (h, m) = self.horario.split_once(':')?;
-        let (h, m) = (h.trim().parse().ok()?, m.trim().parse().ok()?);
-        (h < 24 && m < 60).then_some((h, m))
-    }
+/// "HH:MM" → minutos do dia (0 = 00:00).
+fn minuto_de(txt: &str) -> Option<u32> {
+    let (h, m) = txt.split_once(':')?;
+    let (h, m): (u32, u32) = (h.trim().parse().ok()?, m.trim().parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
+}
 
+fn hhmm(minuto: u32) -> String {
+    format!("{:02}:{:02}", minuto / 60, minuto % 60)
+}
+
+impl Agendamento {
     fn vale_no_dia(&self, dia_semana: usize) -> bool {
         self.ativo && self.dias.get(dia_semana).copied().unwrap_or(false)
     }
 
-    /// Minutos do dia (0 = 00:00) em que dispara.
+    /// Minutos do dia (0 = 00:00) em que dispara, em ordem.
     pub fn minutos_do_dia(&self) -> Vec<u32> {
         match (self.tipo, self.intervalo) {
             (TipoAgenda::HoraCerta, Some(n)) if n > 0 => (0..24 * 60).step_by(n as usize).collect(),
-            _ => self.hora_minuto().map(|(h, m)| h * 60 + m).into_iter().collect(),
+            (TipoAgenda::HoraCerta, _) => vec![],
+            _ => {
+                let mut v: Vec<u32> = self.horarios.iter().filter_map(|h| minuto_de(h)).collect();
+                v.sort_unstable();
+                v.dedup();
+                v
+            }
         }
     }
 
@@ -140,8 +152,16 @@ impl Agendamento {
             if !self.intervalo.is_some_and(|n| INTERVALOS.contains(&n)) {
                 return Err("Escolha de quanto em quanto tempo toca.".into());
             }
-        } else if self.hora_minuto().is_none() {
-            return Err("Horário inválido.".into());
+            self.horarios.clear();
+        } else {
+            if let Some(ruim) = self.horarios.iter().find(|h| minuto_de(h).is_none()) {
+                return Err(format!("Horário inválido: {ruim}."));
+            }
+            // Em ordem, no formato HH:MM e sem repetir.
+            self.horarios = self.minutos_do_dia().into_iter().map(hhmm).collect();
+            if self.horarios.is_empty() {
+                return Err("Coloque pelo menos um horário.".into());
+            }
         }
         if !self.dias.iter().any(|d| *d) {
             return Err("Marque pelo menos um dia.".into());
@@ -155,8 +175,30 @@ impl Agendamento {
 
 const DIAS_NOME: [&str; 7] = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
-/// Dois agendamentos não podem ter o mesmo horário num mesmo dia. A hora certa
-/// é uma só e pode cair junto com qualquer outro.
+/// Tipos que não podem cair no mesmo horário e dia. Comercial e hora certa
+/// entram em fila e podem dividir horário com qualquer um.
+fn grupo_exclusivo(t: TipoAgenda) -> Option<u8> {
+    match t {
+        // Dois por cima da música ao mesmo tempo atropelam a música.
+        TipoAgenda::Ducking => Some(1),
+        // Lista e link trocam o que está no ar: um desfaria o outro.
+        TipoAgenda::Lista | TipoAgenda::Link => Some(2),
+        TipoAgenda::Comercial | TipoAgenda::HoraCerta => None,
+    }
+}
+
+fn nome_tipo(t: TipoAgenda) -> &'static str {
+    match t {
+        TipoAgenda::Ducking => "um comercial com ducking",
+        TipoAgenda::Lista => "uma lista",
+        TipoAgenda::Link => "um link",
+        TipoAgenda::Comercial => "um comercial",
+        TipoAgenda::HoraCerta => "uma hora certa",
+    }
+}
+
+/// Confere se o agendamento pode ser salvo junto com os outros. A hora certa
+/// é uma só; ducking não cai junto com ducking; lista e link não caem juntos.
 pub fn conflito(v: &[Agendamento], ag: &Agendamento) -> Option<String> {
     // Desativado não ocupa horário; ao ativar de novo, confere.
     if !ag.ativo {
@@ -169,13 +211,16 @@ pub fn conflito(v: &[Agendamento], ag: &Agendamento) -> Option<String> {
             .any(|o| o.tipo == TipoAgenda::HoraCerta)
             .then(|| "Já existe uma hora certa. Só pode ter uma.".to_string());
     }
-    let hm = ag.hora_minuto()?;
-    outros
-        .filter(|o| o.tipo != TipoAgenda::HoraCerta && o.hora_minuto() == Some(hm))
-        .find_map(|o| {
-            let dias: Vec<&str> = (0..7).filter(|&i| o.dias[i] && ag.dias[i]).map(|i| DIAS_NOME[i]).collect();
-            (!dias.is_empty()).then(|| format!("Já existe um agendamento às {:02}:{:02} ({}).", hm.0, hm.1, dias.join(", ")))
-        })
+    let grupo = grupo_exclusivo(ag.tipo)?;
+    let meus = ag.minutos_do_dia();
+    outros.filter(|o| grupo_exclusivo(o.tipo) == Some(grupo)).find_map(|o| {
+        let dias: Vec<&str> = (0..7).filter(|&i| o.dias[i] && ag.dias[i]).map(|i| DIAS_NOME[i]).collect();
+        if dias.is_empty() {
+            return None;
+        }
+        let minuto = o.minutos_do_dia().into_iter().find(|m| meus.contains(m))?;
+        Some(format!("Já existe {} às {} ({}).", nome_tipo(o.tipo), hhmm(minuto), dias.join(", ")))
+    })
 }
 
 // ---------- arquivo ----------
@@ -196,9 +241,9 @@ pub fn salvar(dir: &Path, v: &[Agendamento]) -> std::io::Result<()> {
     fs::rename(tmp, dir.join("agendamentos.json"))
 }
 
-/// Hora certa no topo (não tem horário), o resto por horário.
+/// Hora certa no topo (não tem horário), o resto pelo primeiro horário.
 pub fn ordenar(v: &mut [Agendamento]) {
-    v.sort_by_key(|a| (a.tipo != TipoAgenda::HoraCerta, a.hora_minuto().unwrap_or((99, 99))));
+    v.sort_by_key(|a| (a.tipo != TipoAgenda::HoraCerta, a.minutos_do_dia().first().copied().unwrap_or(u32::MAX)));
 }
 
 // ---------- quando disparar ----------
@@ -234,7 +279,7 @@ pub fn lista_vigente(v: &[Agendamento]) -> Option<String> {
         let melhor = v
             .iter()
             .filter(|a| a.tipo == TipoAgenda::Lista && a.vale_no_dia(dia) && !a.pastas.is_empty())
-            .filter_map(|a| a.hora_minuto().map(|(h, m)| (h * 60 + m, a)))
+            .flat_map(|a| a.minutos_do_dia().into_iter().map(move |m| (m, a)))
             .filter(|(m, _)| volta > 0 || *m <= minuto_agora)
             .max_by_key(|(m, _)| *m);
         if let Some((_, a)) = melhor {
@@ -530,18 +575,41 @@ mod testes {
     }
 
     fn ag(id: u64, horario: &str, dias: [bool; 7], tipo: TipoAgenda) -> Agendamento {
-        Agendamento { id, horario: horario.into(), dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None, ativo: true }
+        let horarios = horario.split(',').map(|h| h.trim().to_string()).collect();
+        Agendamento { id, horarios, dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None, ativo: true }
+    }
+
+    #[test]
+    fn varios_horarios_disparam_em_cada_um() {
+        let seg = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        let v = vec![ag(1, "18:00, 08:00, 12:30", [true; 7], TipoAgenda::Comercial)];
+        assert_eq!(do_minuto(&v, seg, 8, 0).len(), 1);
+        assert_eq!(do_minuto(&v, seg, 12, 30).len(), 1);
+        assert_eq!(do_minuto(&v, seg, 18, 0).len(), 1);
+        assert!(do_minuto(&v, seg, 9, 0).is_empty());
+    }
+
+    #[test]
+    fn validar_arruma_os_horarios() {
+        let mut c = ag(0, "18:00, 8:05, 08:05", [true; 7], TipoAgenda::Comercial);
+        c.pastas.push(PastaAnexada { caminho: "/x".into(), modo: Modo::Todos });
+        assert!(c.validar().is_ok());
+        assert_eq!(c.horarios, ["08:05", "18:00"]);
+        c.horarios.clear();
+        assert!(c.validar().is_err());
+        c.horarios = vec!["25:00".into()];
+        assert!(c.validar().is_err());
     }
 
     /// Desativado: não toca e não ocupa o horário; ativar de novo confere conflito.
     #[test]
     fn desativado_nao_toca_nem_ocupa_horario() {
         let hoje = chrono::NaiveDate::from_ymd_opt(2026, 11, 16).unwrap(); // segunda
-        let mut a = ag(1, "08:00", [true; 7], TipoAgenda::Comercial);
+        let mut a = ag(1, "08:00", [true; 7], TipoAgenda::Ducking);
         a.ativo = false;
         let v = vec![a.clone()];
         assert!(do_minuto(&v, hoje, 8, 0).is_empty());
-        let b = ag(2, "08:00", [true; 7], TipoAgenda::Comercial);
+        let b = ag(2, "08:00", [true; 7], TipoAgenda::Ducking);
         assert!(conflito(&v, &b).is_none());
         let v = vec![a.clone(), b];
         a.ativo = true;
@@ -608,15 +676,25 @@ mod testes {
         const SEG_SEX: [bool; 7] = [true, true, true, true, true, false, false];
         const SAB: [bool; 7] = [false, false, false, false, false, true, false];
         const SEG: [bool; 7] = [true, false, false, false, false, false, false];
+        // Comercial entra em fila: cai junto com qualquer um.
         let v = vec![ag(1, "10:00", SEG_SEX, TipoAgenda::Comercial)];
-        // Mesmo horário e dia em comum: não pode.
-        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::Lista)).is_some());
-        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::Comercial)).is_some());
+        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::Comercial)).is_none());
+        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::Ducking)).is_none());
+        assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::Lista)).is_none());
+        // Ducking com ducking: não pode, mesmo que seja só um dos horários.
+        let v = vec![ag(1, "08:00, 10:00", SEG_SEX, TipoAgenda::Ducking)];
+        let msg = conflito(&v, &ag(0, "09:00, 10:00", SEG, TipoAgenda::Ducking)).unwrap();
+        assert!(msg.contains("10:00") && msg.contains("Seg"), "{msg}");
         // Outro dia ou outro horário: pode.
-        assert!(conflito(&v, &ag(0, "10:00", SAB, TipoAgenda::Comercial)).is_none());
-        assert!(conflito(&v, &ag(0, "10:01", SEG, TipoAgenda::Comercial)).is_none());
+        assert!(conflito(&v, &ag(0, "10:00", SAB, TipoAgenda::Ducking)).is_none());
+        assert!(conflito(&v, &ag(0, "10:01", SEG, TipoAgenda::Ducking)).is_none());
         // Editar o próprio não conflita consigo mesmo.
-        assert!(conflito(&v, &ag(1, "10:00", SEG_SEX, TipoAgenda::Comercial)).is_none());
+        assert!(conflito(&v, &ag(1, "10:00", SEG_SEX, TipoAgenda::Ducking)).is_none());
+        // Lista e link não caem juntos (nem lista com lista).
+        let v = vec![ag(1, "19:00", SEG_SEX, TipoAgenda::Lista)];
+        assert!(conflito(&v, &ag(0, "19:00", SEG, TipoAgenda::Lista)).is_some());
+        assert!(conflito(&v, &ag(0, "19:00", SEG, TipoAgenda::Link)).is_some());
+        assert!(conflito(&v, &ag(0, "19:00", SEG, TipoAgenda::Ducking)).is_none());
         // Hora certa cai junto com qualquer outro, mas só pode existir uma.
         assert!(conflito(&v, &ag(0, "10:00", SEG, TipoAgenda::HoraCerta)).is_none());
         let v = vec![ag(1, "00:00", SEG_SEX, TipoAgenda::HoraCerta)];

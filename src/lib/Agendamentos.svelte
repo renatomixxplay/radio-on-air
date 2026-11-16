@@ -35,7 +35,6 @@
   let filtro = $state(-1); // -1 = todos os dias
   let edicao = $state<Agendamento | null>(null);
   let erro = $state("");
-  let erroLista = $state("");
   let arrastando = $state<number | null>(null);
 
   const visiveis = $derived(filtro < 0 ? lista : lista.filter((a) => a.dias[filtro]));
@@ -47,6 +46,32 @@
 
   const nomePasta = (c: string) => c.split(/[\\/]/).filter(Boolean).pop() ?? c;
   const tipoInfo = (t: TipoAgenda) => TIPOS.find((x) => x.tipo === t)!;
+
+  /** Dias ativos por escrito: "Todos os dias", "Seg a Sex" ou "Seg · Qua". */
+  function textoDias(dias: boolean[]) {
+    if (dias.every(Boolean)) return "Todos os dias";
+    if (dias.join() === "true,true,true,true,true,false,false") return "Seg a Sex";
+    return DIAS_NOME.filter((_, i) => dias[i]).join(" · ");
+  }
+
+  /** Horários numa linha só: esconde os do fim que não cabem e mostra "+N". */
+  function umaLinha(node: HTMLElement, _horarios: string[]) {
+    const ajustar = () => {
+      const itens = [...node.querySelectorAll<HTMLElement>(".h")];
+      const mais = node.querySelector<HTMLElement>(".mais");
+      if (!mais) return;
+      itens.forEach((i) => (i.hidden = false));
+      mais.textContent = "";
+      for (let k = itens.length - 1; k > 0 && node.scrollWidth > node.clientWidth; k--) {
+        itens[k].hidden = true;
+        mais.textContent = `+${itens.length - k}`;
+      }
+    };
+    const observador = new ResizeObserver(ajustar);
+    observador.observe(node);
+    ajustar();
+    return { update: ajustar, destroy: () => observador.disconnect() };
+  }
 
   const pastaHora = (a: Agendamento, k: ParteHora) => (k === "hora" ? (a.pastas[0]?.caminho ?? null) : (a[k] ?? null));
 
@@ -77,7 +102,24 @@
 
   function novo() {
     erro = "";
-    edicao = { id: 0, horario: "08:00", dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null, ativo: true };
+    edicao = { id: 0, horarios: ["08:00"], dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null, ativo: true };
+  }
+
+  /** Novo horário: uma hora depois do último (sem repetir um que já existe). */
+  function adicionarHorario() {
+    if (!edicao) return;
+    const minutos = (h: string) => {
+      const [hh, mm] = h.split(":").map(Number);
+      return (hh || 0) * 60 + (mm || 0);
+    };
+    let m = edicao.horarios.length ? minutos(edicao.horarios[edicao.horarios.length - 1]) + 60 : 8 * 60;
+    let novo = "";
+    for (let i = 0; i < 24; i++, m += 60) {
+      const t = ((m % 1440) + 1440) % 1440;
+      novo = `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+      if (!edicao.horarios.includes(novo)) break;
+    }
+    edicao.horarios.push(novo);
   }
 
   async function anexar() {
@@ -108,17 +150,6 @@
     }
   }
 
-  /** Chave da lista: ativa ou desativa sem abrir o agendamento. */
-  async function alternarAtivo(a: Agendamento) {
-    try {
-      lista = await api.agendamentoSalvar({ ...($state.snapshot(a) as Agendamento), ativo: !a.ativo });
-      erroLista = "";
-      if (edicao?.id === a.id) edicao.ativo = !a.ativo;
-    } catch (e) {
-      erroLista = String(e);
-    }
-  }
-
   async function remover() {
     if (!edicao || edicao.id === 0) return (edicao = null);
     lista = await api.agendamentoRemover(edicao.id);
@@ -145,23 +176,23 @@
         <button class="chip" class:on={filtro === i} onclick={() => (filtro = i)}>{d}</button>
       {/each}
   </div>
-  {#if erroLista}<div class="erro">{erroLista}</div>{/if}
   <div class="lista cartoes">
       {#each visiveis as a (a.id)}
         {@const t = tipoInfo(a.tipo)}
-        <div class="ag-item">
-          <button class="painel linha ag" class:sel={edicao?.id === a.id} class:desativado={!a.ativo} onclick={() => editar(a)}>
-            <span class="hora">{a.tipo === "hora_certa" ? `${a.intervalo ?? "–"} min` : a.horario}</span>
-            <span class="tag etiqueta {a.tipo}" title={t.nome}><Icone nome={t.icone} tamanho={18} /></span>
+        <button class="painel linha ag" class:sel={edicao?.id === a.id} class:desativado={!a.ativo} onclick={() => editar(a)}>
+          <span class="tag etiqueta {a.tipo}" title={t.nome}><Icone nome={t.icone} tamanho={18} /></span>
+          <span class="meio">
             <span class="reticencias pastas">{nomesDe(a)}</span>
-            <span class="dias">
-              {#each DIAS as d, i}<span class="d" class:on={a.dias[i]}>{d}</span>{/each}
-            </span>
-          </button>
-          <button class="chave" class:on={a.ativo} onclick={() => alternarAtivo(a)} title={a.ativo ? "Ativado (clique para desativar)" : "Desativado (clique para ativar)"} aria-label="Ativar ou desativar">
-            <span></span>
-          </button>
-        </div>
+            {#if a.tipo === "hora_certa"}
+              <span class="hora">A cada {a.intervalo ?? "–"} min</span>
+            {:else}
+              <span class="hora" title={a.horarios.join(" · ")} use:umaLinha={a.horarios}>
+                {#each a.horarios as h, i}<span class="h">{i ? " · " : ""}{h}</span>{/each}<span class="mais"></span>
+              </span>
+            {/if}
+            <span class="dias">{textoDias(a.dias)}</span>
+          </span>
+        </button>
       {:else}
         <div class="painel vazio">Nenhum agendamento {filtro >= 0 ? "neste dia" : "ainda"}.</div>
       {/each}
@@ -179,6 +210,12 @@
   </div>
   <section class="painel cartao editor">
     {#if edicao}
+      <div class="ativo">
+        <span>Ativo</span>
+        <button class="chave" class:on={edicao.ativo} onclick={() => (edicao!.ativo = !edicao!.ativo)} title={edicao.ativo ? "Ativado (clique para desativar)" : "Desativado (clique para ativar)"} aria-label="Ativar ou desativar">
+          <span></span>
+        </button>
+      </div>
 
       {#if edicao.tipo === "hora_certa"}
         <div class="campo">Quando toca</div>
@@ -188,8 +225,22 @@
           {/each}
         </div>
       {:else}
-        <div class="campo">Horário</div>
-        <input class="horario" type="time" bind:value={edicao.horario} />
+        <div class="campo">Horários</div>
+        <div class="horarios">
+          {#each edicao.horarios as _, i}
+            <div class="horario">
+              <input type="time" bind:value={edicao.horarios[i]} />
+              {#if edicao.horarios.length > 1}
+                <button class="tirar" onclick={() => edicao!.horarios.splice(i, 1)} title="Tirar este horário" aria-label="Tirar este horário">
+                  <Icone nome="x" tamanho={16} />
+                </button>
+              {/if}
+            </div>
+          {/each}
+          <button class="quadrado mais-horario" onclick={adicionarHorario} title="Mais um horário" aria-label="Mais um horário">
+            <Icone nome="plus" tamanho={20} />
+          </button>
+        </div>
       {/if}
 
       <div class="campo">Dias</div>
@@ -370,12 +421,14 @@
     background: var(--painel);
     text-align: left;
     display: grid;
-    grid-template-columns: 56px 34px minmax(0, 1fr) auto;
+    grid-template-columns: 34px minmax(0, 1fr);
   }
-  .ag-item {
+  .ativo {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
+    margin-bottom: 14px;
+    font-size: 15px;
   }
   .ag.desativado {
     opacity: 0.45;
@@ -388,11 +441,27 @@
     border-color: #4a6aa5;
   }
   /* Fonte do projeto; números com a mesma largura para os horários alinharem. */
+  .meio {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
   .hora {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 500;
     color: #fff;
     font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .hora .mais:not(:empty) {
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 6px;
+    background: var(--painel-2);
+    color: var(--texto-2);
   }
   .etiqueta {
     width: 34px;
@@ -413,24 +482,8 @@
     color: var(--tag-comercial);
   }
   .dias {
-    display: inline-flex;
-    gap: 4px;
-  }
-  .d {
-    width: 26px;
-    height: 26px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    border-radius: 6px;
-    border: 0.5px solid var(--borda-forte);
-    color: var(--apagado);
-  }
-  .d.on {
-    background: #2b3a55;
-    border-color: #4a6aa5;
-    color: #cfe0ff;
+    font-size: 13px;
+    color: var(--texto-3);
   }
   .botao {
     height: 38px;
@@ -469,14 +522,48 @@
     font-size: 13px;
     margin: 0 0 6px;
   }
-  .horario {
-    font-variant-numeric: tabular-nums;
-    width: 130px;
-    height: 40px;
-    font-size: 16px;
+  .horarios {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     margin-bottom: 14px;
-    border-color: var(--borda-forte);
+  }
+  .horario {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    border: 0.5px solid var(--borda-forte);
     border-radius: 8px;
+    overflow: hidden;
+  }
+  .horario input {
+    font-variant-numeric: tabular-nums;
+    width: 110px;
+    height: 100%;
+    font-size: 16px;
+    border: none;
+    border-radius: 0;
+  }
+  .horario .tirar {
+    width: 32px;
+    height: 100%;
+    padding: 0;
+    border: none;
+    border-left: 0.5px solid var(--borda-forte);
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--texto-3);
+  }
+  .horario .tirar:hover {
+    color: #fff;
+    background: var(--no-ar);
+  }
+  .mais-horario {
+    width: 40px;
+    height: 40px;
   }
   .intervalos {
     display: flex;

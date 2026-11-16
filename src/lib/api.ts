@@ -96,7 +96,8 @@ export interface PastaAnexada {
 
 export interface Agendamento {
   id: number;
-  horario: string;
+  /** "HH:MM", em ordem. A hora certa não usa. */
+  horarios: string[];
   /** Segunda a domingo. */
   dias: boolean[];
   tipo: TipoAgenda;
