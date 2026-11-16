@@ -141,6 +141,20 @@ impl Biblioteca {
         Self { raiz: Some(raiz), faixas, sujo: true, baralhos: HashMap::new() }
     }
 
+    /// Troca as músicas pelas de uma varredura nova da mesma pasta, mantendo os
+    /// baralhos (nada repete por causa da troca). Devolve se algo mudou.
+    pub fn trocar_faixas(&mut self, nova: Biblioteca) -> bool {
+        if nova.raiz != self.raiz {
+            return false;
+        }
+        let mudou = nova.faixas.len() != self.faixas.len() || nova.faixas.iter().zip(&self.faixas).any(|(a, b)| a.rel != b.rel);
+        if mudou {
+            self.faixas = nova.faixas;
+            self.sujo = true;
+        }
+        mudou
+    }
+
     pub fn salvar_indice(&mut self, arquivo: &Path) -> std::io::Result<()> {
         let Some(raiz) = &self.raiz else { return Ok(()) };
         if let Some(dir) = arquivo.parent() {
@@ -219,27 +233,38 @@ impl Biblioteca {
         }
     }
 
-    /// Todas as músicas de uma pasta: do índice, se estiver no acervo; senão, do disco.
+    /// Todas as músicas de uma pasta: do índice, se estiver no acervo; senão, do
+    /// disco. Pasta do acervo que o índice ainda não conhece (criada sem o
+    /// sistema avisar, comum no Google Drive) também é lida do disco.
     fn cartas_da_pasta(&self, pasta: &Path) -> Vec<PathBuf> {
-        let Some(raiz) = self.raiz.as_ref().filter(|r| pasta.starts_with(r)) else {
-            return WalkDir::new(pasta)
-                .follow_links(true)
-                .into_iter()
-                .filter_map(Result::ok)
-                .filter(|e| e.file_type().is_file() && eh_audio(e.path()))
-                .map(|e| e.into_path())
-                .collect();
-        };
-        let rel = pasta.strip_prefix(raiz).unwrap_or(Path::new(""));
-        // Compara por partes do caminho: no Windows a barra é "\", não "/".
-        self.faixas.iter().filter(|f| Path::new(&f.rel).starts_with(rel)).map(|f| raiz.join(&f.rel)).collect()
+        if let Some(raiz) = self.raiz.as_ref().filter(|r| pasta.starts_with(r)) {
+            let rel = pasta.strip_prefix(raiz).unwrap_or(Path::new(""));
+            // Compara por partes do caminho: no Windows a barra é "\", não "/".
+            let do_indice: Vec<PathBuf> =
+                self.faixas.iter().filter(|f| Path::new(&f.rel).starts_with(rel)).map(|f| raiz.join(&f.rel)).collect();
+            if !do_indice.is_empty() {
+                return do_indice;
+            }
+        }
+        WalkDir::new(pasta)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file() && eh_audio(e.path()))
+            .map(|e| e.into_path())
+            .collect()
     }
 
+    /// A carta ainda existe: está no índice ou, se não está (lida do disco),
+    /// o arquivo continua lá.
     fn ainda_existe(&self, carta: &Path) -> bool {
-        match self.raiz.as_ref().and_then(|r| carta.strip_prefix(r).ok()).and_then(|r| r.to_str()) {
-            Some(rel) => self.faixas.binary_search_by(|f| f.rel.as_str().cmp(rel)).is_ok(),
-            None => carta.is_file(),
-        }
+        let no_indice = self
+            .raiz
+            .as_ref()
+            .and_then(|r| carta.strip_prefix(r).ok())
+            .and_then(|r| r.to_str())
+            .is_some_and(|rel| self.faixas.binary_search_by(|f| f.rel.as_str().cmp(rel)).is_ok());
+        no_indice || carta.is_file()
     }
 
     fn dto(&self, f: &Faixa) -> FaixaDto {
@@ -366,6 +391,35 @@ mod testes {
             assert!(Path::new(&f.caminho).starts_with(&gauchas), "{}", f.caminho);
         }
         assert!(b.proxima_em(Some(&Path::new("/m").join("Vazia"))).is_none());
+    }
+
+    /// Pasta nova no acervo que o índice não conhece (Google Drive não avisou):
+    /// a lista sai dela, lida do disco, e não do acervo todo. Depois a varredura
+    /// em segundo plano coloca a pasta no índice.
+    #[test]
+    fn pasta_nova_fora_do_indice_e_lida_do_disco() {
+        let raiz = std::env::temp_dir().join(format!("radio-bib-{}", std::process::id()));
+        let nova = raiz.join("Playlist Nova");
+        fs::create_dir_all(&nova).unwrap();
+        fs::create_dir_all(raiz.join("Outra")).unwrap();
+        fs::write(nova.join("Fabbio - Musica.mp3"), b"").unwrap();
+        fs::write(raiz.join("Outra").join("X - Y.mp3"), b"").unwrap();
+        // Índice antigo: só conhece a pasta "Outra".
+        let mut b = Biblioteca {
+            raiz: Some(raiz.clone()),
+            faixas: vec![Faixa::nova(Path::new("Outra").join("X - Y.mp3").to_string_lossy().into_owned())],
+            sujo: false,
+            baralhos: HashMap::new(),
+        };
+        for _ in 0..3 {
+            let f = b.proxima_em(Some(&nova)).expect("sai da pasta nova");
+            assert_eq!(PathBuf::from(f.caminho), nova.join("Fabbio - Musica.mp3"));
+        }
+        // A varredura acha a pasta nova e troca a lista.
+        assert!(b.trocar_faixas(Biblioteca::varrer(raiz.clone())));
+        assert_eq!(b.total(), 2);
+        assert!(!b.trocar_faixas(Biblioteca::varrer(raiz.clone())), "sem mudança não troca");
+        fs::remove_dir_all(&raiz).unwrap();
     }
 
     /// Baralho: toca todas da pasta antes de repetir, e a última de uma rodada

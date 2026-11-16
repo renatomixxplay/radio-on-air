@@ -48,7 +48,8 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux), `~/Library/Application Su
 | `indice.txt` | Lista de nomes das músicas (o programa abre na hora mesmo com 100 mil) |
 | `agendamentos.json` | Agendamentos |
 | `rodizio.json` | Último arquivo tocado de cada pasta no modo "só um" |
-| `motor.liq` / `motor.log` | Script e avisos do motor de áudio (diagnóstico) |
+| `motor.liq` / `motor.log` | Script e avisos do motor de áudio (diagnóstico; nível 3: músicas preparadas, trocas de fonte, fim de arquivo, erros). Recomeça a cada abertura |
+| `historico.log` | O que acontece no ar, com horário até o milésimo: o que o programa manda ao motor, os avisos do motor, agendamentos, ducking, fades, botões e por que o programa não entregou a próxima. Continua entre aberturas; passando de 5 MB vira `historico.anterior.log` |
 | `captura.liq` / `captura.log` | Script e avisos da gravação/transmissão (diagnóstico) |
 
 ### Windows
@@ -68,7 +69,7 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux), `~/Library/Application Su
 Navegação no topo: **No ar · Agendamentos · Pastas · Cartucheira · Configurações**.
 Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões separados embaixo**.
 
-**Abertura:** ao abrir o programa, uma janela "Seja bem-vindo" com o nome da rádio, uma barra que enche em 3 partes e a etapa atual escrita embaixo (configurações, músicas, motor de áudio). Some sozinha quando tudo fica pronto (fica no mínimo 1,5 s, para não piscar). Se o motor não ligar, mostra o erro, os botões **Reiniciar** (fecha e abre o programa) e **Fechar**; eles também aparecem se demorar mais de 30 s.
+**Abertura:** ao abrir o programa, uma janela "Seja bem-vindo" com o nome da rádio, uma barra que enche em 4 partes e a etapa atual escrita embaixo (configurações, músicas, procurando músicas novas, motor de áudio por último). A rádio só começa a tocar depois da procura de músicas novas (ou de 15 s, se o Drive travar: aí usa o que tem e termina em segundo plano). Some sozinha quando tudo fica pronto (fica no mínimo 1,5 s, para não piscar). Se o motor não ligar, mostra o erro, os botões **Reiniciar** (fecha e abre o programa) e **Fechar**; eles também aparecem se demorar mais de 30 s.
 
 ### 3.1 No ar ✅
 
@@ -124,7 +125,8 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 - Acervo de ~**100 mil músicas**, em **subpastas**.
 - Padrão de nome `Artista - Música.mp3`; fora do padrão, o nome inteiro vira a música e o artista fica em branco.
 - Busca em memória só pelos **nomes** dos arquivos. Palavras em qualquer ordem; traço e outros sinais são ignorados ("jorge - amor" = "amor jorge"). Mostra até 200, **as mais certeiras primeiro**: música ou artista que começa com o que foi digitado, depois palavra que começa com a primeira palavra digitada, depois o resto.
-- `indice.txt` para abrir na hora; atualização **automática** quando entra/sai/renomeia música; botão **Atualizar** se der erro. Sem varredura ao abrir.
+- `indice.txt` para abrir na hora; atualização **automática** quando entra/sai/renomeia música; botão **Atualizar** se der erro. **Ao abrir**, depois de carregar o `indice.txt`, relê a pasta inteira procurando mudanças (só os nomes, ~1–2 s) e atualiza o índice se algo mudou — no Google Drive o Windows nem sempre avisa. A rádio espera essa procura para começar a tocar, no máximo **15 s**.
+- Pasta de **lista** que o índice ainda não conhece (pasta nova) é lida **direto do disco**: a lista nunca cai no acervo todo por isso.
 - Duração lida do **cabeçalho** do arquivo só quando ele entra na fila (sem decodificar o áudio).
 - ❓ Linux com muitas subpastas pode precisar aumentar `fs.inotify.max_user_watches` na instalação.
 
@@ -144,7 +146,7 @@ Por **horário + dias da semana**. O programa só preenche/executa — não exis
 |---|---|
 | 🎵 **Lista de músicas** | **Limpa a fila** e põe músicas novas (aleatório) da pasta. Duas opções: **Aguardar** (a música atual termina) ou **Imediato** (fade de 3 s e a lista já começa; comercial/hora certa tocando não levam fade). Vale até a próxima lista. Ao abrir no meio do dia, vale a última lista que já passou. Também **encerra o link** (fade de 3 s). |
 | 📢 **Comercial** | Espera a música acabar e toca as pastas anexadas. |
-| 🎙 **Comercial com ducking** | Entra **por cima**: a música cai para 20% quando há voz e sobe nos silêncios. Entra na hora só se estiver tocando música e a próxima **ainda não foi entregue** ao motor; senão (últimos 5 s, comercial ou vinheta tocando) **espera a próxima música e entra 10 s depois** que ela começar (descartado se esperar mais de 10 min ou entrar um link). Se o bloco **não cabe** no que falta da música, ela **repete por baixo**; quando a fala acaba, a música volta ao normal, **toca mais 10 s** e sai com **fade de 3 s** para a próxima (se a música mudar nesse meio tempo, não troca). **Sem vinheta** durante o ducking nem logo depois dele. O botão **Repetir** não liga faltando menos de 10 s. |
+| 🎙 **Comercial com ducking** | Entra **por cima**: a música cai para 20% quando há voz e sobe nos silêncios. Entra na hora só se estiver tocando música e a próxima **ainda não foi entregue** ao motor; senão (últimos 5 s, comercial ou vinheta tocando) **espera a próxima música e entra 10 s depois** que ela começar (descartado se esperar mais de 10 min ou entrar um link). Se o bloco **não cabe** no que falta da música, ela **repete por baixo**; quando a fala acaba, a música volta ao normal, **toca mais 10 s** e sai com **fade de 3 s** para a próxima (se a música mudar nesse meio tempo, não troca). No fim do fade (e no **Passar**) o programa **já manda a próxima** ao motor, sem esperar o aviso de "fiquei vazio" do motor — esse aviso às vezes não vinha e a rádio ficava muda. **Sem vinheta** durante o ducking nem logo depois dele. O botão **Repetir** não liga faltando menos de 10 s. |
 | 🕐 **Hora certa** | **Só existe uma.** Toca na **hora cheia** ou **a cada 30 min** (:00 e :30), nos dias marcados. Espera a música acabar e toca, nesta ordem, três partes opcionais: **abertura da hora** (um arquivo da pasta), **hora** e **comercial da hora** (um arquivo da pasta). A hora falada é a do fim da música, não a do disparo. Arquivos de hora: separados `HRS08` + `MIN10` (hora cheia = só `HRS08`) ou um só (`HRS08_MIN10`, `08-10`, `08h10`, `0810`). |
 | 📡 **Link** | Áudio ao vivo por endereço (MP3/AAC/HLS), ex.: Voz do Brasil. No horário, **fade de 3 s** na música, toca **um arquivo da pasta de abertura** (opcional) e entra o link. Toca **até a próxima lista ou outro link**. Se cair, **silêncio tentando reconectar** sozinho. Comercial, ducking e hora certa que caem durante o link (ou esperavam a música acabar) são **descartados**. Passar fica bloqueado. |
 

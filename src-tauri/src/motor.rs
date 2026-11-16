@@ -159,7 +159,7 @@ fn script(porta: u16, log: &str, audio: &crate::config::Audio) -> String {
         r#"
 settings.frame.duration.set({quadro:.2})
 settings.log.stdout.set(false)
-settings.log.level.set(2)
+settings.log.level.set(3)
 settings.log.file.set(true)
 settings.log.file.append.set(false)
 settings.log.file.path.set({log:?})
@@ -282,6 +282,13 @@ impl Motor {
         let ultimas = mensagens.clone();
         std::thread::spawn(move || {
             for linha in BufReader::new(stdout).lines().map_while(Result::ok) {
+                // Anota o aviso no instante em que chega, antes de o programa tratar.
+                if let Some(aviso) = linha.strip_prefix("@@") {
+                    let (tipo, resto) = aviso.split_once(' ').unwrap_or((aviso, ""));
+                    let arq = resto.split('\t').next().unwrap_or("").trim();
+                    let arq = if arq.is_empty() { "(vazio)".to_string() } else { crate::registro::nome(arq) };
+                    crate::registro::anotar(format!("← motor: {tipo} {arq}"));
+                }
                 if let Some(resto) = linha.strip_prefix("@@FAIXA") {
                     let (arq, toca) = ler_faixa(resto);
                     ao_evento(EventoMotor::Faixa(crate::sistema::do_motor(&arq), toca));
@@ -319,7 +326,26 @@ impl Motor {
     }
 
     /// Envia um comando ao servidor telnet do Liquidsoap e devolve a resposta.
+    /// Envia um comando e anota no `historico.log` (menos os passos de volume
+    /// do fade, que são muitos; esses só se der erro).
     fn comando(&self, cmd: &str) -> Result<String, String> {
+        let r = self.comando_sem_registro(cmd);
+        let (verbo, resto) = cmd.split_once(' ').unwrap_or((cmd, ""));
+        let resumo = if resto.contains(['/', '\\']) {
+            let musica = if resto.contains("tipo=\"musica\"") { " (música)" } else { "" };
+            format!("{verbo} {}{musica}", crate::registro::nome(resto))
+        } else {
+            cmd.to_string()
+        };
+        match &r {
+            Err(e) => crate::registro::anotar(format!("→ motor: {resumo} — ERRO: {e}")),
+            Ok(_) if !cmd.starts_with("var.set vol") => crate::registro::anotar(format!("→ motor: {resumo}")),
+            Ok(_) => {}
+        }
+        r
+    }
+
+    fn comando_sem_registro(&self, cmd: &str) -> Result<String, String> {
         let mut s = TcpStream::connect(("127.0.0.1", self.porta)).map_err(|e| e.to_string())?;
         s.set_read_timeout(Some(Duration::from_secs(2))).ok();
         writeln!(s, "{cmd}").map_err(|e| e.to_string())?;

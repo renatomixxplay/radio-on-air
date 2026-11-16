@@ -6,6 +6,7 @@ mod config;
 mod motor;
 mod ordem;
 mod placas;
+mod registro;
 mod sistema;
 
 use agenda::{Agendamento, ModoLista, Rodizio, TipoAgenda};
@@ -33,6 +34,9 @@ const DUCKING_VALIDADE: Duration = Duration::from_secs(600);
 /// Com menos que isso para acabar, o botão Repetir não liga (a próxima já
 /// pode ter ido para o motor).
 const REPETIR_MINIMO: f64 = 10.0;
+/// Ao abrir, espera no máximo isso pela procura de músicas novas; depois a
+/// rádio começa com o que já tem e a procura termina em segundo plano.
+const LIMITE_PROCURA: Duration = Duration::from_secs(15);
 /// Fim da fala com a música repetindo: ela volta ao normal e toca mais este
 /// tempo antes do fade para a próxima.
 const DEPOIS_DO_DUCKING: Duration = Duration::from_secs(10);
@@ -106,6 +110,9 @@ pub struct Estado {
     config: Config,
     bib: Biblioteca,
     carregando: bool,
+    /// Ao abrir: relendo a pasta de músicas atrás de mudanças. A rádio só
+    /// começa a tocar quando termina (ou passa `LIMITE_PROCURA`).
+    procurando_musicas: bool,
     fila: Vec<Item>,
     tocando: Option<Tocando>,
     no_ar: bool,
@@ -135,6 +142,8 @@ pub struct Estado {
     ducking_adiado: Option<DuckingAdiado>,
     /// Conta os fins de ducking: a troca marcada só vale se for a última.
     vez_ducking: u64,
+    /// A fala acabou e a troca para a próxima está marcada: sem vinheta até lá.
+    trocando_pos_ducking: bool,
     prox_id: u64,
     motor: Option<Motor>,
     /// O motor está sendo ligado em segundo plano.
@@ -202,6 +211,7 @@ struct Retrato {
     fila: Vec<Item>,
     total_musicas: usize,
     carregando: bool,
+    procurando_musicas: bool,
     pasta_musicas: Option<String>,
     /// Pastas do painel "Pastas", em ordem alfabética.
     pastas: Vec<Pasta>,
@@ -246,6 +256,7 @@ impl Estado {
             fila: self.fila.clone(),
             total_musicas: self.bib.total(),
             carregando: self.carregando,
+            procurando_musicas: self.procurando_musicas,
             pasta_musicas: caminho(&self.config.pasta_musicas),
             pastas: {
                 let mut v: Vec<Pasta> = self
@@ -350,7 +361,7 @@ impl Estado {
         let entre_musicas = self.tocando.as_ref().is_some_and(|t| t.item.tipo == Tipo::Musica)
             && self.fila.first().is_some_and(|i| i.tipo == Tipo::Musica);
         // Com ducking (falando por cima ou repetindo a música) não entra vinheta.
-        let ducking = self.por_cima.is_some() || self.repetir_auto;
+        let ducking = self.por_cima.is_some() || self.repetir_auto || self.trocando_pos_ducking;
         if !self.config.vinheta_entre_musicas || !entre_musicas || !self.pendentes.is_empty() || self.link.is_some() || ducking {
             return false;
         }
@@ -377,6 +388,9 @@ impl Estado {
     /// Entrega ao motor o próximo: primeiro os agendados pendentes, depois a fila.
     fn enviar_proximo(&mut self) {
         if self.tem_entregue() {
+            let presos: Vec<String> =
+                self.pendentes.iter().chain(self.fila.iter()).filter(|i| i.travado).map(|i| registro::nome(&i.caminho)).collect();
+            registro::anotar(format!("programa: não entrega, já entregue ao motor: {}", presos.join(", ")));
             return;
         }
         if self.entregar_com_vinheta() {
@@ -463,12 +477,19 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
     }
     match ev {
         EventoMotor::Faixa(caminho, _) if caminho.is_empty() => {
-            // O motor ficou sem nada: entrega a próxima na hora.
+            // O motor ficou sem nada: entrega a próxima na hora (ao abrir,
+            // só depois da procura de músicas novas).
             e.tocando = None;
-            if e.no_ar && !e.pausado {
+            if e.no_ar && !e.pausado && !e.procurando_musicas {
+                registro::anotar("programa: motor vazio → manda a próxima");
                 completar_fila(app, estado, &mut e);
                 e.enviar_proximo();
                 e.ligar_link_se_pronto();
+            } else {
+                registro::anotar(format!(
+                    "programa: motor vazio, não manda (no ar={}, pausado={}, procurando músicas={})",
+                    e.no_ar, e.pausado, e.procurando_musicas
+                ));
             }
         }
         EventoMotor::Faixa(caminho, toca) => {
@@ -476,6 +497,12 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
             e.repeticao_enviada = false;
             let pend = e.pendentes.iter().position(|i| i.travado && i.caminho == caminho);
             let pos = e.fila.iter().position(|i| i.travado && i.caminho == caminho);
+            let origem = match (repeticao, pend, pos) {
+                (true, _, _) => "repetição",
+                (false, Some(_), _) => "agendado",
+                (false, None, Some(_)) => "fila",
+                (false, None, None) => "não estava na fila",
+            };
             let item = match (repeticao, pend, pos) {
                 (true, _, _) => e.tocando.as_ref().map(|t| t.item.clone()).expect("tocando"),
                 (false, Some(p), _) => e.pendentes.remove(p),
@@ -492,6 +519,12 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
             if toca.is_some() {
                 item.duracao = toca;
             }
+            registro::anotar(format!(
+                "programa: tocando {} ({origem}, {:?}, duração {})",
+                registro::nome(&item.caminho),
+                item.tipo,
+                item.duracao.map(|d| format!("{d:.1} s")).unwrap_or_else(|| "?".into())
+            ));
             e.tocando = Some(Tocando { item, inicio: Instant::now(), pausa_desde: None, pausado_total: Duration::ZERO });
             completar_fila(app, estado, &mut e);
         }
@@ -500,6 +533,9 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
                 let p = Path::new(&caminho);
                 agenda::nome_sem_validade(&p.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default())
             });
+            if caminho.is_empty() {
+                registro::anotar(format!("programa: fala acabou (repetindo a música={})", e.repetir_auto));
+            }
             if caminho.is_empty() && e.repetir_auto {
                 e.repetir_auto = false;
                 trocar_depois_do_ducking(app, estado, &mut e);
@@ -521,6 +557,7 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
             // Falhou ao iniciar: a mensagem já foi dada por quem tentou ligar.
         }
         EventoMotor::Parou(erro) => {
+            registro::anotar(format!("programa: o motor caiu: {}", erro.lines().last().unwrap_or("")));
             // O motor caiu. Se a rádio estava no ar, continua no ar: o motor é
             // religado em 3 s e segue com a PRÓXIMA da fila (a que tocava não
             // volta: se foi ela que derrubou o motor, cairia de novo).
@@ -579,7 +616,7 @@ fn iniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
             Ok(m) => {
                 e.motor = Some(m);
                 e.erro_motor = None;
-                if e.no_ar && !e.pausado && e.tocando.is_none() {
+                if e.no_ar && !e.pausado && e.tocando.is_none() && !e.procurando_musicas {
                     completar_fila(&app, &estado, &mut e);
                     e.enviar_proximo();
                     e.ligar_link_se_pronto();
@@ -723,8 +760,10 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
                 t.item.tipo == Tipo::Musica && Some(t.item.id) != ad.depois_de && t.decorrido() >= DUCKING_DEPOIS
             });
             if ad.desde.elapsed() > DUCKING_VALIDADE {
+                registro::anotar("ducking que esperava: descartado (mais de 10 min)");
                 e.ducking_adiado = None;
             } else if na_proxima && e.link.is_none() && !e.tem_entregue() {
+                registro::anotar("ducking que esperava: entra agora (10 s depois do início da música)");
                 let ad = e.ducking_adiado.take().expect("adiado");
                 falar_por_cima(&mut e, ad.arquivos);
                 emitir(&app, &e);
@@ -739,6 +778,11 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
             if !e.repeticao_enviada {
                 let atual = e.tocando.as_ref().map(|t| (t.item.caminho.clone(), t.item.tipo == Tipo::Musica));
                 if let (Some(m), Some((c, musica))) = (&e.motor, atual) {
+                    registro::anotar(format!(
+                        "relógio: repete {} ({})",
+                        registro::nome(&c),
+                        if e.repetir_auto { "ducking não coube" } else { "botão Repetir" }
+                    ));
                     if m.enfileirar(&c, musica).is_ok() {
                         e.repeticao_enviada = true;
                         emitir(&app, &e);
@@ -753,7 +797,9 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
 }
 
 /// Abaixa a música até zero em 3 s, passa para a próxima e volta o volume.
-fn fade_e_proxima(app: AppHandle, estado: Compartilhado, volume_normal: f64) {
+/// `pos_ducking`: é a troca depois do ducking (descarta a vinheta que esperava).
+fn fade_e_proxima(app: AppHandle, estado: Compartilhado, volume_normal: f64, pos_ducking: bool) {
+    registro::anotar(format!("fade de 3 s começou ({})", if pos_ducking { "depois do ducking" } else { "lista ou link" }));
     std::thread::spawn(move || {
         const PASSOS: u32 = 15;
         for i in 1..=PASSOS {
@@ -764,14 +810,28 @@ fn fade_e_proxima(app: AppHandle, estado: Compartilhado, volume_normal: f64) {
             }
         }
         let mut e = travar(&estado);
+        registro::anotar("fade terminou: pula a música no motor");
         if let Some(m) = &e.motor {
             let _ = m.esvaziar_e_pular();
             let _ = m.volume(volume_normal);
         }
-        // Como no Passar: vai direto para a próxima, sem a vinheta que esperava.
-        e.pendentes.retain(|i| i.tipo != Tipo::Vinheta);
+        if pos_ducking {
+            // Como no Passar: vai direto para a próxima, sem a vinheta que esperava.
+            // (Só aqui: no link, a "vinheta" pendente é a abertura, que fica.)
+            e.pendentes.retain(|i| i.tipo != Tipo::Vinheta);
+            e.trocando_pos_ducking = false;
+        }
         e.repeticao_enviada = false;
         e.destravar_tudo();
+        // Não espera o motor avisar que ficou vazio (o aviso pode não vir e a
+        // rádio ficava muda): manda a próxima já. No link, quem entra é a
+        // abertura/link, pelo aviso do motor, como antes.
+        if e.no_ar && e.link.is_none() {
+            registro::anotar("fade: manda a próxima sem esperar o aviso do motor");
+            e.tocando = None;
+            completar_fila(&app, &estado, &mut e);
+            e.enviar_proximo();
+        }
         emitir(&app, &e);
     });
 }
@@ -792,6 +852,13 @@ fn agendar_em_sequencia(app: &AppHandle, estado: &Compartilhado, e: &mut Estado,
 }
 
 fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agendamento) {
+    registro::anotar(format!(
+        "agendamento: {:?} {} (no ar={}, link={})",
+        ag.tipo,
+        ag.pastas.iter().map(|p| registro::nome(&p.caminho)).collect::<Vec<_>>().join(" + "),
+        e.no_ar,
+        e.link.is_some()
+    ));
     match ag.tipo {
         TipoAgenda::Lista => {
             if let Some(p) = ag.pastas.first() {
@@ -812,7 +879,7 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
                 encerrar_link(app, estado, e);
             } else if fade {
                 e.repetir_auto = false;
-                fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 });
+                fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 }, false);
             }
         }
         // O resto só quando a rádio está no ar.
@@ -838,6 +905,10 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
                 falar_por_cima(e, arquivos);
             } else {
                 let depois_de = e.tocando.as_ref().map(|t| t.item.id);
+                registro::anotar(format!(
+                    "ducking: espera a próxima música + 10 s (tocando música={musica}, próxima já entregue={})",
+                    e.tem_entregue()
+                ));
                 e.ducking_adiado = Some(DuckingAdiado { arquivos, depois_de, desde: Instant::now() });
             }
         }
@@ -861,20 +932,32 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
 /// tempo a música mudou (Próximo, acabou sozinha) ou entrou outro ducking ou
 /// link, a troca não acontece.
 fn trocar_depois_do_ducking(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    registro::anotar("fim da fala: música volta ao normal, troca para a próxima em 10 s");
     e.vez_ducking += 1;
+    e.trocando_pos_ducking = true;
     let vez = e.vez_ducking;
     let musica = e.tocando.as_ref().map(|t| t.item.id);
     let (app, estado) = (app.clone(), estado.clone());
     std::thread::spawn(move || {
         std::thread::sleep(DEPOIS_DO_DUCKING);
-        let e = travar(&estado);
+        let mut e = travar(&estado);
         let mesma = e.tocando.as_ref().map(|t| t.item.id) == musica;
         if e.vez_ducking != vez || !mesma || !e.no_ar || e.pausado || e.link.is_some() || e.repetir_auto {
+            registro::anotar(format!(
+                "troca depois do ducking cancelada (mesma música={mesma}, outro ducking={}, no ar={}, pausado={}, link={})",
+                e.vez_ducking != vez,
+                e.no_ar,
+                e.pausado,
+                e.link.is_some()
+            ));
+            if e.vez_ducking == vez {
+                e.trocando_pos_ducking = false;
+            }
             return;
         }
         let volume = if e.ducking { DUCKING_NIVEL } else { 1.0 };
         drop(e);
-        fade_e_proxima(app, estado, volume);
+        fade_e_proxima(app, estado, volume, true);
     });
 }
 
@@ -890,6 +973,12 @@ fn falar_por_cima(e: &mut Estado, arquivos: Vec<PathBuf>) {
     if falta.is_some_and(|f| total > f - 1.0) {
         e.repetir_auto = true;
     }
+    registro::anotar(format!(
+        "ducking: {} arquivo(s), {total:.0} s de fala, faltam {} da música → {}",
+        arquivos.len(),
+        falta.map(|f| format!("{f:.0} s")).unwrap_or_else(|| "?".into()),
+        if e.repetir_auto { "não cabe, repete a música" } else { "cabe" }
+    ));
     let bloco: Vec<String> = arquivos.into_iter().map(|p| p.to_string_lossy().into_owned()).collect();
     if let Some(m) = &e.motor {
         if let Err(err) = m.falar(&bloco) {
@@ -901,6 +990,7 @@ fn falar_por_cima(e: &mut Estado, arquivos: Vec<PathBuf>) {
 /// Entra o link: fade na música, abertura (se tiver) e o link.
 fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agendamento) {
     let Some(url) = ag.url.clone() else { return };
+    registro::anotar(format!("link: entra {url}"));
     // Outro link no ar: sai sem fade e entra o novo.
     if e.link.take().is_some_and(|l| l.ligado) {
         if let Some(m) = &e.motor {
@@ -921,7 +1011,7 @@ fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Ag
     if e.tocando.is_some() {
         // Quando o fade acabar, o motor fica sem nada e o evento de silêncio
         // entrega a abertura ou liga o link.
-        fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 });
+        fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 }, false);
     } else {
         e.enviar_proximo();
         e.ligar_link_se_pronto();
@@ -931,6 +1021,7 @@ fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Ag
 /// Tira o link do ar com fade de 3 s e a fila de músicas volta.
 fn encerrar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     let Some(link) = e.link.take() else { return };
+    registro::anotar("link: sai");
     if !link.ligado {
         // Ainda na abertura: quando ela acabar, a fila segue normalmente.
         e.pendentes.retain(|i| i.travado);
@@ -1052,27 +1143,78 @@ fn carregar_biblioteca(app: AppHandle, estado: Compartilhado, forcar_varredura: 
         let mut e = travar(&estado);
         let Some(raiz) = e.config.pasta_musicas.clone() else { return };
         e.carregando = true;
+        // Ao abrir (lista guardada) vem a procura de músicas novas: a rádio já
+        // espera por ela desde agora, antes de o motor avisar que está livre.
+        e.procurando_musicas = !forcar_varredura;
         e.vigia = None;
         emitir(&app, &e);
         (raiz, e.arquivo_indice())
     };
     std::thread::spawn(move || {
-        let bib = (!forcar_varredura)
-            .then(|| Biblioteca::carregar_indice(raiz.clone(), &indice))
-            .flatten()
-            .unwrap_or_else(|| Biblioteca::varrer(raiz.clone()));
+        let do_indice = (!forcar_varredura).then(|| Biblioteca::carregar_indice(raiz.clone(), &indice)).flatten();
+        // Veio da lista guardada: abre na hora e, em segundo plano, relê a pasta
+        // procurando músicas novas, apagadas ou renomeadas desde a última vez.
+        if do_indice.is_some() {
+            procurar_mudancas(app.clone(), estado.clone(), raiz.clone());
+        }
+        let veio_do_indice = do_indice.is_some();
+        let bib = do_indice.unwrap_or_else(|| Biblioteca::varrer(raiz.clone()));
         let mut e = travar(&estado);
+        if !veio_do_indice {
+            // Sem lista guardada (primeira vez): acabou de varrer tudo.
+            e.procurando_musicas = false;
+        }
         e.bib = bib;
         let _ = e.bib.salvar_indice(&indice);
         e.carregando = false;
         e.vigia = vigiar(&app, &estado, &raiz);
         completar_fila(&app, &estado, &mut e);
-        // "Tocar ao abrir": se o motor já está pronto, começa assim que há músicas.
-        if e.no_ar && !e.pausado && e.tocando.is_none() {
+        // "Tocar ao abrir": se o motor já está pronto, começa assim que há músicas
+        // (e a procura de músicas novas terminou).
+        if e.no_ar && !e.pausado && e.tocando.is_none() && !e.procurando_musicas {
             e.enviar_proximo();
         }
         emitir(&app, &e);
     });
+}
+
+/// Relê a pasta de músicas inteira sem travar nada e, se mudou algo, troca a
+/// lista de músicas (os baralhos continuam).
+fn procurar_mudancas(app: AppHandle, estado: Compartilhado, raiz: PathBuf) {
+    travar(&estado).procurando_musicas = true;
+    // Travou (Google Drive sem resposta)? Depois do limite começa com o que tem.
+    let (app2, estado2) = (app.clone(), estado.clone());
+    std::thread::spawn(move || {
+        std::thread::sleep(LIMITE_PROCURA);
+        let mut e = travar(&estado2);
+        if e.procurando_musicas {
+            e.procurando_musicas = false;
+            comecar_a_tocar(&app2, &estado2, &mut e);
+            emitir(&app2, &e);
+        }
+    });
+    std::thread::spawn(move || {
+        let nova = Biblioteca::varrer(raiz);
+        let mut e = travar(&estado);
+        if !e.carregando && e.bib.trocar_faixas(nova) {
+            let arq = e.arquivo_indice();
+            let _ = e.bib.salvar_indice(&arq);
+        }
+        if e.procurando_musicas {
+            e.procurando_musicas = false;
+            comecar_a_tocar(&app, &estado, &mut e);
+        }
+        emitir(&app, &e);
+    });
+}
+
+/// Rádio no ar e nada tocando: completa a fila e entrega a primeira ao motor.
+fn comecar_a_tocar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    if e.no_ar && !e.pausado && e.tocando.is_none() {
+        completar_fila(app, estado, e);
+        e.enviar_proximo();
+        e.ligar_link_se_pronto();
+    }
 }
 
 /// Acompanha a pasta de músicas: arquivo novo, apagado ou renomeado entra no índice na hora.
@@ -1372,6 +1514,7 @@ fn fila_mover(app: AppHandle, estado: State<Compartilhado>, id: u64, posicao: us
 fn tocar(app: AppHandle, estado: State<Compartilhado>) {
     let compartilhado = estado.inner().clone();
     let mut e = travar(&compartilhado);
+    registro::anotar(format!("botão Tocar (pausado={}, no ar={})", e.pausado, e.no_ar));
     iniciar_motor(&app, &compartilhado, &mut e);
     if e.pausado || e.saida_parada {
         if let Some(m) = &e.motor {
@@ -1398,6 +1541,7 @@ fn tocar(app: AppHandle, estado: State<Compartilhado>) {
 #[tauri::command]
 fn pausar(app: AppHandle, estado: State<Compartilhado>) {
     let mut e = travar(&estado);
+    registro::anotar("botão Pausar");
     if !e.no_ar || e.pausado {
         return;
     }
@@ -1414,6 +1558,7 @@ fn pausar(app: AppHandle, estado: State<Compartilhado>) {
 #[tauri::command]
 fn parar(app: AppHandle, estado: State<Compartilhado>) {
     let mut e = travar(&estado);
+    registro::anotar("botão Parar");
     e.no_ar = false;
     e.pausado = false;
     if let Some(m) = &e.motor {
@@ -1433,6 +1578,8 @@ fn parar(app: AppHandle, estado: State<Compartilhado>) {
 fn proxima(app: AppHandle, estado: State<Compartilhado>) {
     let compartilhado = estado.inner().clone();
     let mut e = travar(&compartilhado);
+    let tocando = e.tocando.as_ref().map(|t| registro::nome(&t.item.caminho)).unwrap_or_else(|| "(nada)".into());
+    registro::anotar(format!("botão Próximo (tocando {tocando}, no ar={}, link={})", e.no_ar, e.link.is_some()));
     if !e.no_ar {
         return;
     }
@@ -1441,18 +1588,23 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
         return;
     }
     if e.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta)) {
+        registro::anotar("botão Próximo ignorado: agendamento tocando");
         return;
     }
     completar_fila(&app, &compartilhado, &mut e);
     // Passar vai direto para a próxima música, sem a vinheta entre elas.
     e.pendentes.retain(|i| i.tipo != Tipo::Vinheta);
-    // Tira do motor o que já tinha sido entregue (inclusive uma repetição);
-    // o motor fica sem nada e o evento de silêncio entrega a próxima da fila.
+    // Tira do motor o que já tinha sido entregue (inclusive uma repetição),
+    // pula a atual e já manda a próxima, sem esperar o motor avisar que ficou
+    // vazio (com o motor já parado esse aviso não vem e o Passar não fazia nada).
     if let Some(m) = &e.motor {
         let _ = m.esvaziar_e_pular();
     }
     e.repeticao_enviada = false;
+    e.trocando_pos_ducking = false;
     e.destravar_tudo();
+    e.tocando = None;
+    e.enviar_proximo();
     emitir(&app, &e);
 }
 
@@ -1615,6 +1767,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = sistema::pasta_dados(app.path().app_data_dir().expect("pasta de dados"));
+            registro::iniciar(&dir);
             // No Windows o Liquidsoap vem dentro do instalador.
             if let Ok(recursos) = app.path().resource_dir() {
                 motor::usar_embutido(&recursos);
@@ -1633,6 +1786,7 @@ pub fn run() {
                 config: config.clone(),
                 bib: Biblioteca::default(),
                 carregando: false,
+                procurando_musicas: false,
                 fila: vec![],
                 tocando: None,
                 no_ar: config.tocar_ao_abrir,
@@ -1650,6 +1804,7 @@ pub fn run() {
                 repetir_auto: false,
                 ducking_adiado: None,
                 vez_ducking: 0,
+                trocando_pos_ducking: false,
                 prox_id: 0,
                 motor: None,
                 iniciando_motor: false,

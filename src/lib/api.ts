@@ -20,6 +20,8 @@ export interface Retrato {
   fila: Item[];
   total_musicas: number;
   carregando: boolean;
+  /** Ao abrir: procurando músicas novas na pasta (a rádio espera, até 15 s). */
+  procurando_musicas: boolean;
   pasta_musicas: string | null;
   pastas: Pasta[];
   tocar_ao_abrir: boolean;

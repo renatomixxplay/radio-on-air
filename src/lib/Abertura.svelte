@@ -18,6 +18,7 @@
   const etapas = $derived<{ nome: string; situacao: Situacao }[]>([
     { nome: "Carregando configurações", situacao: r ? "ok" : "andando" },
     { nome: "Carregando músicas", situacao: !r ? "espera" : r.carregando ? "andando" : "ok" },
+    { nome: "Procurando músicas novas", situacao: !r || r.carregando ? "espera" : r.procurando_musicas ? "andando" : "ok" },
     r?.erro_motor
       ? { nome: "Motor de áudio não ligou", situacao: "erro" }
       : { nome: "Carregando motor de áudio", situacao: !r ? "espera" : r.iniciando_motor ? "andando" : "ok" },
