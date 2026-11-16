@@ -102,7 +102,13 @@
 
   function novo() {
     erro = "";
-    edicao = { id: 0, horarios: ["08:00"], dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null, ativo: true };
+    edicao = { id: 0, horarios: ["08:00"], dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null, ativo: true, pula_feriado: false, outras_datas: [] };
+  }
+
+  /** Nova data sem tocar, em branco: escolhe no calendário. Em branco não é salva. */
+  function adicionarData() {
+    if (!edicao) return;
+    edicao.outras_datas = [...(edicao.outras_datas ?? []), ""];
   }
 
   /** Novo horário: uma hora depois do último (sem repetir um que já existe). */
@@ -341,6 +347,30 @@
       {/if}
       {/if}
 
+      <div class="ativo feriado">
+        <span>Não toca em feriado</span>
+        <button class="chave" class:on={edicao.pula_feriado} onclick={() => (edicao!.pula_feriado = !edicao!.pula_feriado)} title={edicao.pula_feriado ? "Não toca em feriado (clique para tocar)" : "Toca em feriado (clique para não tocar)"} aria-label="Não tocar em feriado">
+          <span></span>
+        </button>
+      </div>
+      {#if edicao.pula_feriado}
+        <div class="dica feriados">Já pula 1/1, 21/4, 1/5, 7/9, 12/10, 2/11, 15/11, 20/11 e 25/12.</div>
+        <div class="campo">Outras datas</div>
+        <div class="horarios">
+          {#each edicao.outras_datas ?? [] as _, i}
+            <div class="horario">
+              <input type="date" class="data" bind:value={edicao.outras_datas![i]} />
+              <button class="tirar" onclick={() => edicao!.outras_datas!.splice(i, 1)} title="Tirar esta data" aria-label="Tirar esta data">
+                <Icone nome="x" tamanho={16} />
+              </button>
+            </div>
+          {/each}
+          <button class="quadrado mais-horario" onclick={adicionarData} title="Mais uma data" aria-label="Mais uma data">
+            <Icone nome="plus" tamanho={20} />
+          </button>
+        </div>
+      {/if}
+
       {#if erro}<div class="erro">{erro}</div>{/if}
 
       <div class="acoes">
@@ -560,6 +590,15 @@
   .horario .tirar:hover {
     color: #fff;
     background: var(--no-ar);
+  }
+  .horario input.data {
+    width: 150px;
+  }
+  .ativo.feriado {
+    margin-top: 18px;
+  }
+  .dica.feriados {
+    margin: -6px 0 10px;
   }
   .mais-horario {
     width: 40px;

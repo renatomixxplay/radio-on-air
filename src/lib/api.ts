@@ -113,6 +113,10 @@ export interface Agendamento {
   modo_lista?: "depois_desta" | "fade";
   /** Desativado: fica na lista mas não toca. */
   ativo: boolean;
+  /** Não toca nos feriados de data fixa nem nas outras datas. */
+  pula_feriado?: boolean;
+  /** Datas a mais em que não toca ("AAAA-MM-DD"). */
+  outras_datas?: string[];
   /** Link: endereço do áudio ao vivo (MP3/AAC). */
   url?: string | null;
 }

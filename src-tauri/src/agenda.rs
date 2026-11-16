@@ -80,10 +80,27 @@ pub struct Agendamento {
     /// Desativado: fica na lista mas não toca (nem conta como horário ocupado).
     #[serde(default = "ativo_padrao")]
     pub ativo: bool,
+    /// Não toca nos feriados de data fixa nem nas `outras_datas`.
+    #[serde(default)]
+    pub pula_feriado: bool,
+    /// Datas a mais em que não toca ("AAAA-MM-DD"), com `pula_feriado` ligado.
+    #[serde(default)]
+    pub outras_datas: Vec<String>,
 }
 
 fn ativo_padrao() -> bool {
     true
+}
+
+/// Feriados nacionais de data fixa (dia, mês).
+pub const FERIADOS_FIXOS: [(u32, u32); 9] = [(1, 1), (21, 4), (1, 5), (7, 9), (12, 10), (2, 11), (15, 11), (20, 11), (25, 12)];
+
+pub fn feriado_fixo(data: NaiveDate) -> bool {
+    FERIADOS_FIXOS.contains(&(data.day(), data.month()))
+}
+
+fn data_de(txt: &str) -> Option<NaiveDate> {
+    NaiveDate::parse_from_str(txt.trim(), "%Y-%m-%d").ok()
 }
 
 /// Intervalos da hora certa: a cada 30 min ou só na hora cheia.
@@ -101,8 +118,13 @@ fn hhmm(minuto: u32) -> String {
 }
 
 impl Agendamento {
-    fn vale_no_dia(&self, dia_semana: usize) -> bool {
-        self.ativo && self.dias.get(dia_semana).copied().unwrap_or(false)
+    /// Toca nesta data: ativo, dia da semana marcado e, se pula feriado,
+    /// não é feriado de data fixa nem uma das outras datas.
+    fn vale_na_data(&self, data: NaiveDate) -> bool {
+        if !self.ativo || !self.dias.get(dia_semana(data)).copied().unwrap_or(false) {
+            return false;
+        }
+        !(self.pula_feriado && (feriado_fixo(data) || self.outras_datas.iter().any(|d| data_de(d) == Some(data))))
     }
 
     /// Minutos do dia (0 = 00:00) em que dispara, em ordem.
@@ -163,6 +185,12 @@ impl Agendamento {
                 return Err("Coloque pelo menos um horário.".into());
             }
         }
+        // Outras datas: em ordem, sem repetir e sem as que já passaram.
+        let hoje = Local::now().date_naive();
+        let mut datas: Vec<NaiveDate> = self.outras_datas.iter().filter_map(|d| data_de(d)).filter(|d| *d >= hoje).collect();
+        datas.sort_unstable();
+        datas.dedup();
+        self.outras_datas = datas.iter().map(|d| d.format("%Y-%m-%d").to_string()).collect();
         if !self.dias.iter().any(|d| *d) {
             return Err("Marque pelo menos um dia.".into());
         }
@@ -256,11 +284,10 @@ pub fn dia_semana(d: NaiveDate) -> usize {
 /// Agendamentos que vencem exatamente neste minuto. A hora certa vem primeiro,
 /// para não atrasar se dividir o horário com um comercial.
 pub fn do_minuto(v: &[Agendamento], data: NaiveDate, hora: u32, minuto: u32) -> Vec<Agendamento> {
-    let dia = dia_semana(data);
     let agora = hora * 60 + minuto;
     let mut vencem: Vec<Agendamento> = v
         .iter()
-        .filter(|a| a.vale_no_dia(dia) && a.minutos_do_dia().contains(&agora))
+        .filter(|a| a.vale_na_data(data) && a.minutos_do_dia().contains(&agora))
         .cloned()
         .collect();
     vencem.sort_by_key(|a| a.tipo != TipoAgenda::HoraCerta);
@@ -275,10 +302,9 @@ pub fn lista_vigente(v: &[Agendamento]) -> Option<String> {
     let minuto_agora = agora.hour() * 60 + agora.minute();
     for volta in 0..7 {
         let data = hoje - chrono::Days::new(volta);
-        let dia = dia_semana(data);
         let melhor = v
             .iter()
-            .filter(|a| a.tipo == TipoAgenda::Lista && a.vale_no_dia(dia) && !a.pastas.is_empty())
+            .filter(|a| a.tipo == TipoAgenda::Lista && a.vale_na_data(data) && !a.pastas.is_empty())
             .flat_map(|a| a.minutos_do_dia().into_iter().map(move |m| (m, a)))
             .filter(|(m, _)| volta > 0 || *m <= minuto_agora)
             .max_by_key(|(m, _)| *m);
@@ -301,12 +327,11 @@ pub fn proximo(v: &[Agendamento]) -> Option<ProximoDto> {
     let agora = Local::now();
     let hoje = agora.date_naive();
     let minuto_agora = agora.hour() * 60 + agora.minute();
-    for adiante in 0..8 {
+    for adiante in 0..15 {
         let data = hoje + chrono::Days::new(adiante);
-        let dia = dia_semana(data);
         let achado = v
             .iter()
-            .filter(|a| a.tipo != TipoAgenda::Lista && a.vale_no_dia(dia))
+            .filter(|a| a.tipo != TipoAgenda::Lista && a.vale_na_data(data))
             .flat_map(|a| a.minutos_do_dia().into_iter().map(move |m| (m, a)))
             .filter(|(m, _)| adiante > 0 || *m > minuto_agora)
             // No mesmo minuto, a hora certa vem primeiro (é o que toca antes).
@@ -576,7 +601,32 @@ mod testes {
 
     fn ag(id: u64, horario: &str, dias: [bool; 7], tipo: TipoAgenda) -> Agendamento {
         let horarios = horario.split(',').map(|h| h.trim().to_string()).collect();
-        Agendamento { id, horarios, dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None, ativo: true }
+        Agendamento { id, horarios, dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None, ativo: true, pula_feriado: false, outras_datas: vec![] }
+    }
+
+    #[test]
+    fn pula_feriado_fixo_e_outras_datas() {
+        let natal = NaiveDate::from_ymd_opt(2026, 12, 25).unwrap(); // sexta
+        let dia_comum = NaiveDate::from_ymd_opt(2026, 12, 18).unwrap(); // sexta
+        let outra = NaiveDate::from_ymd_opt(2026, 12, 21).unwrap(); // segunda
+        let mut voz = ag(1, "19:00", [true, true, true, true, true, false, false], TipoAgenda::Link);
+        // Sem a chave: toca no feriado.
+        assert_eq!(do_minuto(&[voz.clone()], natal, 19, 0).len(), 1);
+        voz.pula_feriado = true;
+        voz.outras_datas = vec!["2026-12-21".into()];
+        let v = [voz.clone()];
+        assert!(do_minuto(&v, natal, 19, 0).is_empty());
+        assert!(do_minuto(&v, outra, 19, 0).is_empty());
+        assert_eq!(do_minuto(&v, dia_comum, 19, 0).len(), 1);
+    }
+
+    #[test]
+    fn validar_arruma_outras_datas() {
+        let mut l = ag(0, "19:00", [true; 7], TipoAgenda::Link);
+        l.url = Some("https://x".into());
+        l.outras_datas = vec!["2099-05-02".into(), "".into(), "2099-01-10".into(), "2099-05-02".into(), "2000-01-01".into(), "lixo".into()];
+        assert!(l.validar().is_ok());
+        assert_eq!(l.outras_datas, ["2099-01-10", "2099-05-02"]);
     }
 
     #[test]

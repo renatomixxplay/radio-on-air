@@ -149,6 +149,7 @@ Por **horário + dias da semana**. O programa só preenche/executa — não exis
 - **Agendamento não entra na fila e não se pula:** comercial e hora certa tocam numa sequência própria antes da fila. Passar não pula agendamento; se pular uma música, o comercial que estava esperando continua garantido.
 - Fora do ar, comercial e hora certa **não são guardados** para depois (lista de músicas vale mesmo fora do ar).
 - **Ativar/desativar:** chave "Ativo" dentro do editor, antes dos horários (vale ao salvar). Desativado fica apagadinho, **não toca** e **não ocupa o horário** (dá para criar outro no mesmo horário). Ao ativar de novo, confere conflito e avisa se o horário já está ocupado.
+- **Não toca em feriado:** chave no editor. Ligada, o agendamento não toca nos feriados de data fixa (1/1, 21/4, 1/5, 7/9, 12/10, 2/11, 15/11, 20/11, 25/12) nem nas **outras datas** escolhidas no calendário (Carnaval, dispensa da Voz do Brasil, feriado da cidade). Datas que já passaram somem ao salvar.
 - **Vários horários** num agendamento: toca em cada um deles, nos dias marcados.
 - **Mesmo horário e dia:** comercial entra em fila e pode cair junto com qualquer outro. **Bloqueado** (salvar avisa): dois **ducking** juntos, e **lista com lista, link com link ou lista com link** (um desfaria o outro). A **hora certa** é uma só, pode cair junto com qualquer outro e toca primeiro.
 - Voz da hora certa que a rádio usa: `audios/Hora Certa (Voz Fem)/` no projeto.
