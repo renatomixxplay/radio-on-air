@@ -68,6 +68,8 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux), `~/Library/Application Su
 Navegação no topo: **No ar · Agendamentos · Pastas · Cartucheira · Configurações**.
 Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões separados embaixo**.
 
+**Abertura:** ao abrir o programa, uma janela "Seja bem-vindo" com o nome da rádio, uma barra que enche em 3 partes e a etapa atual escrita embaixo (configurações, músicas, motor de áudio). Some sozinha quando tudo fica pronto (fica no mínimo 1,5 s, para não piscar). Se o motor não ligar, mostra o erro, os botões **Reiniciar** (fecha e abre o programa) e **Fechar**; eles também aparecem se demorar mais de 30 s.
+
 ### 3.1 No ar ✅
 
 ```
@@ -121,7 +123,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 
 - Acervo de ~**100 mil músicas**, em **subpastas**.
 - Padrão de nome `Artista - Música.mp3`; fora do padrão, o nome inteiro vira a música e o artista fica em branco.
-- Busca em memória só pelos **nomes** dos arquivos.
+- Busca em memória só pelos **nomes** dos arquivos. Palavras em qualquer ordem; traço e outros sinais são ignorados ("jorge - amor" = "amor jorge"). Mostra até 200, **as mais certeiras primeiro**: música ou artista que começa com o que foi digitado, depois palavra que começa com a primeira palavra digitada, depois o resto.
 - `indice.txt` para abrir na hora; atualização **automática** quando entra/sai/renomeia música; botão **Atualizar** se der erro. Sem varredura ao abrir.
 - Duração lida do **cabeçalho** do arquivo só quando ele entra na fila (sem decodificar o áudio).
 - ❓ Linux com muitas subpastas pode precisar aumentar `fs.inotify.max_user_watches` na instalação.

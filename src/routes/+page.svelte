@@ -12,6 +12,7 @@
   import AbaCartucheira from "$lib/AbaCartucheira.svelte";
   import AbaConfiguracoes from "$lib/AbaConfiguracoes.svelte";
   import PedirSenha from "$lib/PedirSenha.svelte";
+  import Abertura from "$lib/Abertura.svelte";
   import type { Bloqueios } from "$lib/api";
 
   let r = $state<Retrato | null>(null);
@@ -86,6 +87,8 @@
   );
   const relogio = $derived(agora.toLocaleTimeString("pt-BR", { hour12: false }));
 </script>
+
+<Abertura {r} />
 
 <div class="app">
   <header>

@@ -174,6 +174,10 @@ export const api = {
   definirTocarAoAbrir: (valor: boolean) => invoke<void>("definir_tocar_ao_abrir", { valor }),
   definirAbrirTelaCheia: (valor: boolean) => invoke<void>("definir_abrir_tela_cheia", { valor }),
   alternarTelaCheia: () => invoke<boolean>("alternar_tela_cheia"),
+  /** Fecha e abre o programa de novo. */
+  reiniciar: () => invoke<void>("reiniciar_programa"),
+  /** Fecha o programa. */
+  fechar: () => invoke<void>("fechar_programa"),
   telaCheiaAgora: () => invoke<boolean>("tela_cheia_agora"),
   definirVinhetaEntreMusicas: (valor: boolean) => invoke<void>("definir_vinheta_entre_musicas", { valor }),
   nomeRadioDefinir: (nome: string) => invoke<void>("nome_radio_definir", { nome }),

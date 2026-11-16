@@ -880,6 +880,28 @@ fn encerrar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     });
 }
 
+/// Fecha o motor e a gravação/transmissão (ao sair ou reiniciar).
+fn fechar_processos(e: &mut Estado) {
+    // Avisos dos processos antigos passam a ser ignorados.
+    e.geracao_motor += 1;
+    e.geracao_captura += 1;
+    e.motor = None;
+    e.captura = None;
+}
+
+/// Fecha e abre o programa de novo (o motor não ligou, por exemplo).
+#[tauri::command]
+fn reiniciar_programa(app: AppHandle, estado: State<Compartilhado>) {
+    fechar_processos(&mut travar(&estado));
+    app.restart();
+}
+
+/// Fecha o programa (o motor e a gravação fecham junto, no `RunEvent::Exit`).
+#[tauri::command]
+fn fechar_programa(app: AppHandle) {
+    app.exit(0);
+}
+
 /// Confere a agenda a cada segundo e dispara o que vence em cada minuto novo.
 fn iniciar_relogio_agenda(app: AppHandle, estado: Compartilhado) {
     use chrono::Timelike;
@@ -1567,6 +1589,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             estado,
+            reiniciar_programa,
+            fechar_programa,
             buscar,
             programas,
             arquivos_da_pasta,
@@ -1610,13 +1634,7 @@ pub fn run() {
         .run(|app, evento| {
             // Fechou o programa: fecha junto o motor e a gravação/transmissão.
             if let tauri::RunEvent::Exit = evento {
-                let estado = app.state::<Compartilhado>();
-                let mut e = travar(&estado);
-                // Avisos dos processos antigos passam a ser ignorados.
-                e.geracao_motor += 1;
-                e.geracao_captura += 1;
-                e.motor = None;
-                e.captura = None;
+                fechar_processos(&mut travar(&app.state::<Compartilhado>()));
             }
         });
 }

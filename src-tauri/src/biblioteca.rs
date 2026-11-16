@@ -39,14 +39,33 @@ pub struct Faixa {
     pub rel: String,
     pub artista: String,
     pub musica: String,
+    /// "artista música" normalizado para a busca.
     chave: String,
+    /// Onde começa a música dentro da `chave`.
+    inicio_musica: usize,
 }
 
 impl Faixa {
     fn nova(rel: String) -> Self {
         let (artista, musica) = artista_e_musica(Path::new(&rel));
-        let chave = chave(&format!("{artista} {musica}"));
-        Self { rel, artista, musica, chave }
+        let artista_chave = chave(&artista);
+        let inicio_musica = artista_chave.len() + 1;
+        let chave = format!("{artista_chave} {}", chave(&musica));
+        Self { rel, artista, musica, chave, inicio_musica }
+    }
+
+    /// Quão certeira é para a busca (menor = melhor): 0 = a música ou o
+    /// artista começa com o que foi digitado; 1 = alguma palavra começa com a
+    /// primeira palavra digitada; 2 = o resto.
+    fn nota(&self, frase: &str, primeira: &str) -> u8 {
+        let (artista, musica) = (&self.chave[..self.inicio_musica - 1], &self.chave[self.inicio_musica..]);
+        if musica.starts_with(frase) || artista.starts_with(frase) {
+            0
+        } else if self.chave.split(|c: char| !c.is_alphanumeric()).any(|p| p.starts_with(primeira)) {
+            1
+        } else {
+            2
+        }
     }
 }
 
@@ -141,15 +160,25 @@ impl Biblioteca {
         Ok(())
     }
 
-    /// Busca por música ou artista. Todas as palavras digitadas precisam aparecer.
+    /// Busca por música ou artista. Todas as palavras digitadas precisam
+    /// aparecer, em qualquer ordem; traço e outros sinais são ignorados. As
+    /// mais certeiras vêm primeiro (veja `Faixa::nota`).
     pub fn buscar(&self, termo: &str, limite: usize) -> Vec<FaixaDto> {
-        let palavras: Vec<String> = chave(termo).split_whitespace().map(String::from).collect();
-        self.faixas
+        let termo = chave(termo);
+        let palavras: Vec<&str> = termo.split(|c: char| !c.is_alphanumeric()).filter(|p| !p.is_empty()).collect();
+        let Some(primeira) = palavras.first() else {
+            return self.faixas.iter().take(limite).map(|f| self.dto(f)).collect();
+        };
+        let frase = palavras.join(" ");
+        let mut achadas: Vec<(u8, &Faixa)> = self
+            .faixas
             .iter()
-            .filter(|f| palavras.iter().all(|p| f.chave.contains(p.as_str())))
-            .take(limite)
-            .map(|f| self.dto(f))
-            .collect()
+            .filter(|f| palavras.iter().all(|p| f.chave.contains(p)))
+            .map(|f| (f.nota(&frase, primeira), f))
+            .collect();
+        // Estável: dentro da mesma nota, segue a ordem do acervo.
+        achadas.sort_by_key(|(nota, _)| *nota);
+        achadas.into_iter().take(limite).map(|(_, f)| self.dto(f)).collect()
     }
 
     /// Próxima música do baralho de uma pasta (com subpastas); `None` = acervo
@@ -293,6 +322,30 @@ mod testes {
         // Compara como caminho: no Windows a junção usa "\\" ("/m\\B/Maria - Rio.mp3").
         assert_eq!(PathBuf::from(&b.buscar("maria rio", 10)[0].caminho), Path::new("/m").join("B/Maria - Rio.mp3"));
         assert_eq!(b.buscar("xyz", 10).len(), 0);
+        // Traço e outros sinais não atrapalham.
+        assert_eq!(b.buscar("renato - fogo", 10).len(), 1);
+        assert_eq!(b.buscar("renato-fogo!", 10).len(), 1);
+        assert_eq!(b.buscar(" - ", 10).len(), 2);
+    }
+
+    #[test]
+    fn busca_mostra_as_mais_certeiras_primeiro() {
+        let b = Biblioteca {
+            raiz: Some(PathBuf::from("/m")),
+            faixas: vec![
+                Faixa::nova("Zeca - Meu Amor Antigo.mp3".into()),
+                Faixa::nova("Ana - Clamor.mp3".into()),
+                Faixa::nova("Amora - Chuva.mp3".into()),
+                Faixa::nova("Bia - Amor Perfeito.mp3".into()),
+                Faixa::nova("Sem artista amor.mp3".into()),
+            ],
+            sujo: false,
+            baralhos: HashMap::new(),
+        };
+        let nomes = |t: &str| b.buscar(t, 10).into_iter().map(|f| format!("{} - {}", f.artista, f.musica)).collect::<Vec<_>>();
+        // Começa com "amor" (artista ou música) > palavra que começa com "amor" > o resto.
+        assert_eq!(nomes("amor"), ["Amora - Chuva", "Bia - Amor Perfeito", "Zeca - Meu Amor Antigo", " - Sem artista amor", "Ana - Clamor"]);
+        assert_eq!(nomes("amor perfeito")[0], "Bia - Amor Perfeito");
     }
 
     fn acervo(rels: &[&str]) -> Biblioteca {
