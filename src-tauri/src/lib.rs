@@ -808,8 +808,10 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
 }
 
 /// Abaixa a música até zero em 3 s, passa para a próxima e volta o volume.
+/// O volume do fade vale antes do crossfade (`vol_troca`), então o fim da
+/// música que sai continua baixo enquanto a próxima entra.
 /// `pos_ducking`: é a troca depois do ducking (descarta a vinheta que esperava).
-fn fade_e_proxima(app: AppHandle, estado: Compartilhado, volume_normal: f64, pos_ducking: bool) {
+fn fade_e_proxima(app: AppHandle, estado: Compartilhado, pos_ducking: bool) {
     registro::anotar(format!("fade de 3 s começou ({})", if pos_ducking { "depois do ducking" } else { "lista ou link" }));
     std::thread::spawn(move || {
         const PASSOS: u32 = 15;
@@ -817,14 +819,14 @@ fn fade_e_proxima(app: AppHandle, estado: Compartilhado, volume_normal: f64, pos
             std::thread::sleep(Duration::from_millis(200));
             let e = travar(&estado);
             if let Some(m) = &e.motor {
-                let _ = m.volume(volume_normal * (1.0 - f64::from(i) / f64::from(PASSOS)));
+                let _ = m.volume_troca(1.0 - f64::from(i) / f64::from(PASSOS));
             }
         }
         let mut e = travar(&estado);
         registro::anotar("fade terminou: pula a música no motor");
         if let Some(m) = &e.motor {
             let _ = m.esvaziar_e_pular();
-            let _ = m.volume(volume_normal);
+            let _ = m.volume_troca(1.0);
         }
         if pos_ducking {
             // Como no Passar: vai direto para a próxima, sem a vinheta que esperava.
@@ -890,7 +892,7 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
                 encerrar_link(app, estado, e);
             } else if fade {
                 e.repetir_auto = false;
-                fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 }, false);
+                fade_e_proxima(app.clone(), estado.clone(), false);
             }
         }
         // O resto só quando a rádio está no ar.
@@ -966,9 +968,8 @@ fn trocar_depois_do_ducking(app: &AppHandle, estado: &Compartilhado, e: &mut Est
             }
             return;
         }
-        let volume = if e.ducking { DUCKING_NIVEL } else { 1.0 };
         drop(e);
-        fade_e_proxima(app, estado, volume, true);
+        fade_e_proxima(app, estado, true);
     });
 }
 
@@ -1022,7 +1023,7 @@ fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Ag
     if e.tocando.is_some() {
         // Quando o fade acabar, o motor fica sem nada e o evento de silêncio
         // entrega a abertura ou liga o link.
-        fade_e_proxima(app.clone(), estado.clone(), if e.ducking { DUCKING_NIVEL } else { 1.0 }, false);
+        fade_e_proxima(app.clone(), estado.clone(), false);
     } else {
         e.enviar_proximo();
         e.ligar_link_se_pronto();

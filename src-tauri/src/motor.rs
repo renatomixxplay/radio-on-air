@@ -179,7 +179,12 @@ def transicao(a, b) =
     sequence([a.source, b.source])
   end
 end
-fila = cross(duration=2., transicao, fila_q)
+# Volume do fade de troca (fim do ducking, lista "Imediato", link). Fica ANTES do
+# crossfade: o pedaço do fim da música que o crossfade guarda (2 s) já sai com o
+# volume baixo do fade. Depois dele, voltar o volume ao normal não traz a música
+# antiga de volta alta (era o "pulo" no fim do fade).
+vol_troca = interactive.float("vol_troca", 1.0)
+fila = cross(duration=2., transicao, amplify(override=null, vol_troca, fila_q))
 musica = fallback(id="musica", track_sensitive=false, [fila, blank(id="silencio")])
 # A troca de faixa sem mistura gera uma "faixa vazia" de passagem com a fila
 # pronta: só avisa silêncio quando a fila acabou de verdade.
@@ -382,9 +387,16 @@ impl Motor {
         self.comando("fila.flush_and_skip").map(|_| ())
     }
 
-    /// Volume da música no ar (1.0 = normal). Não afeta a cartucheira.
+    /// Volume da música no ar (1.0 = normal): o botão do microfone. Vale na
+    /// hora. Não afeta a cartucheira.
     pub fn volume(&self, v: f64) -> Result<(), String> {
         self.comando(&format!("var.set vol = {v:.3}")).map(|_| ())
+    }
+
+    /// Volume do fade de troca (1.0 = normal). Vale antes do crossfade, com
+    /// ~2 s de atraso, e não traz de volta o fim da música que saiu.
+    pub fn volume_troca(&self, v: f64) -> Result<(), String> {
+        self.comando(&format!("var.set vol_troca = {v:.3}")).map(|_| ())
     }
 
     /// Liga o link ao vivo (tenta reconectar sozinho se cair).
@@ -469,5 +481,6 @@ mod testes {
         assert!(saida.status.success(), "{}{}", String::from_utf8_lossy(&saida.stdout), String::from_utf8_lossy(&saida.stderr));
     }
 }
+
 
 
