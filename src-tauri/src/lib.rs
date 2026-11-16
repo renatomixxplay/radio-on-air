@@ -241,6 +241,8 @@ struct Retrato {
     /// Comercial/hora certa que entra quando a música acabar.
     aguardando: Option<String>,
     repetir_auto: bool,
+    /// Fala acabou e a troca para a próxima está marcada (botões travados).
+    pos_ducking: bool,
     proximo_agendamento: Option<agenda::ProximoDto>,
     /// Endereço do link ao vivo no ar.
     link: Option<String>,
@@ -315,6 +317,7 @@ impl Estado {
                 })
             },
             repetir_auto: self.repetir_auto,
+            pos_ducking: self.trocando_pos_ducking,
             proximo_agendamento: agenda::proximo(&self.agenda),
             link: self.link.as_ref().filter(|l| l.ligado).map(|l| l.url.clone()),
             previa: self.previa.as_ref().map(|p| PreviaDto {
@@ -340,6 +343,14 @@ impl Estado {
 
     /// Entrega o primeiro da fila ao motor, se ainda não foi.
     /// Já tem algo entregue ao motor esperando para tocar.
+    /// Agendamento no ar que os botões não mexem: comercial ou hora certa
+    /// tocando, ou o ducking (falando por cima, música repetindo ou os 10 s
+    /// até a troca). Pausar, Repetir, Próximo e microfone ficam travados.
+    fn travado_por_agendamento(&self) -> bool {
+        let comercial = self.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta));
+        comercial || self.por_cima.is_some() || self.repetir_auto || self.trocando_pos_ducking
+    }
+
     fn tem_entregue(&self) -> bool {
         self.pendentes.iter().chain(self.fila.iter()).any(|i| i.travado)
     }
@@ -1545,6 +1556,10 @@ fn pausar(app: AppHandle, estado: State<Compartilhado>) {
     if !e.no_ar || e.pausado {
         return;
     }
+    if e.travado_por_agendamento() {
+        registro::anotar("botão Pausar ignorado: agendamento ou ducking no ar");
+        return;
+    }
     if let Some(m) = &e.motor {
         let _ = m.pausar();
     }
@@ -1587,8 +1602,8 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
     if e.link.is_some() {
         return;
     }
-    if e.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta)) {
-        registro::anotar("botão Próximo ignorado: agendamento tocando");
+    if e.travado_por_agendamento() {
+        registro::anotar("botão Próximo ignorado: agendamento ou ducking no ar");
         return;
     }
     completar_fila(&app, &compartilhado, &mut e);
@@ -1616,6 +1631,10 @@ fn alternar_repetir(app: AppHandle, estado: State<Compartilhado>) {
     if !e.repetir && falta.is_some_and(|f| f < REPETIR_MINIMO) {
         return;
     }
+    // Ligar não dá com agendamento, ducking ou link no ar (desligar sempre dá).
+    if !e.repetir && (e.travado_por_agendamento() || e.link.is_some()) {
+        return;
+    }
     e.repetir = !e.repetir;
     emitir(&app, &e);
 }
@@ -1626,6 +1645,11 @@ fn alternar_ducking(app: AppHandle, estado: State<Compartilhado>) {
     let compartilhado = estado.inner().clone();
     let (de, para) = {
         let mut e = travar(&compartilhado);
+        // Ligar não dá com agendamento, ducking ou link no ar (desligar sempre
+        // dá). No link nem faria efeito: o microfone abaixa só a música.
+        if !e.ducking && (e.travado_por_agendamento() || e.link.is_some()) {
+            return;
+        }
         iniciar_motor(&app, &compartilhado, &mut e);
         e.ducking = !e.ducking;
         emitir(&app, &e);

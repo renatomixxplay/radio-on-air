@@ -40,6 +40,8 @@ export interface Retrato {
   por_cima: string | null;
   aguardando: string | null;
   repetir_auto: boolean;
+  /** A fala do ducking acabou e a troca para a próxima está marcada. */
+  pos_ducking: boolean;
   nome_radio: string;
   audio: Audio;
   gravacao: Gravacao;

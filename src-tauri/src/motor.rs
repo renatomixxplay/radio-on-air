@@ -196,17 +196,20 @@ fala = rms(duration=0.2, fala)
 fala_ar = fallback(track_sensitive=false, [fala, blank()])
 fala_ar.on_track(synchronous=true, fun (m) -> print("@@FALA #{{m['filename']}}"))
 ultima_voz = ref(-100.)
-ganho_fala = ref(1.)
-# Suavização por pedaço de áudio: mesma velocidade qualquer que seja o tamanho
-# do pedaço (0,15 por pedaço de 0,04 s).
-suave = {suave:.4}
+# Volume da música em dB (0 = normal, -14 = 20%). O volume só muda de pedaço em
+# pedaço de áudio ({quadro:.2} s): anda em degraus iguais em dB, pequenos o
+# bastante para não se ouvir o "salto". Desce em 0,6 s e sobe em 2 s.
+ganho_db = ref(0.)
+desce_db = {desce:.3}
+sobe_db = {sobe:.3}
 def ganho() =
   if fala.is_ready() and fala.rms() > 0.02 then
     ultima_voz := time()
   end
-  alvo = if time() - ultima_voz() < 1.5 then 0.2 else 1. end
-  ganho_fala := ganho_fala() + (alvo - ganho_fala()) * suave
-  ganho_fala()
+  alvo = if time() - ultima_voz() < 1.5 then -14. else 0. end
+  atual = ganho_db()
+  ganho_db := if alvo < atual then max(alvo, atual - desce_db) else min(alvo, atual + sobe_db) end
+  lin_of_dB(ganho_db())
 end
 vol = interactive.float("vol", 1.0)
 musica = amplify(override=null, fun () -> ganho() * vol(), musica)
@@ -236,7 +239,8 @@ previa.on_track(synchronous=true, fun (m) -> print("@@PRE #{{m['filename']}}"))
 {saida_pre}
 "#,
         quadro = quadro(),
-        suave = 1.0 - 0.85_f64.powf(quadro() / 0.04),
+        desce = 14.0 / (0.6 / quadro()),
+        sobe = 14.0 / (2.0 / quadro()),
         saida_ar = saida("saida", "radio", audio.saida.as_deref()),
         saida_pre = saida("preescuta", "previa", audio.pre_escuta.as_deref()),
     )
@@ -465,4 +469,5 @@ mod testes {
         assert!(saida.status.success(), "{}{}", String::from_utf8_lossy(&saida.stdout), String::from_utf8_lossy(&saida.stderr));
     }
 }
+
 

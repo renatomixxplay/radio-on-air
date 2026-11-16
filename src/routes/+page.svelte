@@ -154,6 +154,7 @@
           aguardando={r.aguardando}
           proximo={r.proximo_agendamento}
           repetirAuto={r.repetir_auto}
+          posDucking={r.pos_ducking}
           link={r.link}
         />
         <Cartucheira slots={r.cartucheira} />

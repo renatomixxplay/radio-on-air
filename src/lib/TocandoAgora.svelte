@@ -12,6 +12,7 @@
     porCima,
     aguardando,
     repetirAuto,
+    posDucking,
     proximo,
     link,
   }: {
@@ -24,6 +25,8 @@
     porCima: string | null;
     aguardando: string | null;
     repetirAuto: boolean;
+    /** A fala do ducking acabou e a troca para a próxima está marcada. */
+    posDucking: boolean;
     proximo: Retrato["proximo_agendamento"];
     /** Endereço do link ao vivo no ar. */
     link: string | null;
@@ -34,6 +37,11 @@
   const falta = $derived(duracao != null ? duracao - decorrido : null);
   /** Comercial e hora certa não podem ser pulados. */
   const agendado = $derived(item?.tipo === "comercial" || item?.tipo === "hora_certa");
+  /** Ducking no ar: falando por cima, música repetindo ou os 10 s até a troca. */
+  const emDucking = $derived(!!porCima || repetirAuto || posDucking);
+  /** Comercial, hora certa ou ducking: botões travados (o Tocar, se pausado, não). */
+  const travado = $derived(agendado || emDucking);
+  const avisoTravado = "Agendamento no ar: aguarde terminar";
   /** Últimos 10 segundos: a barra fica vermelha. */
   /** Perto do fim não dá para ligar o Repetir (a próxima já pode ter ido). */
   const semTempoRepetir = $derived(!repetir && !repetirAuto && falta != null && falta < 10);
@@ -83,32 +91,40 @@
     </div>
 
     <div class="botoes">
-      <button class:ligado={ducking} onclick={api.alternarDucking} title="Ducking: abaixa a música para o locutor falar" aria-label="Ducking">
+      <button
+        class:ligado={ducking}
+        onclick={api.alternarDucking}
+        disabled={(travado || !!link) && !ducking}
+        title={(travado || link) && !ducking ? avisoTravado : "Ducking: abaixa a música para o locutor falar"}
+        aria-label="Ducking"
+      >
         <Icone nome="ducking" tamanho={20} />
       </button>
       {#if noAr && !pausado}
-        <button onclick={api.pausar} title="Pausar" aria-label="Pausar"><Icone nome="pause" tamanho={20} /></button>
+        <button onclick={api.pausar} disabled={travado} title={travado ? avisoTravado : "Pausar"} aria-label="Pausar"><Icone nome="pause" tamanho={20} /></button>
       {:else}
         <button class="principal" onclick={api.tocar} title="Tocar" aria-label="Tocar"><Icone nome="play" tamanho={20} /></button>
       {/if}
       <button
         class:ligado={repetir || repetirAuto}
         onclick={api.alternarRepetir}
-        disabled={semTempoRepetir}
+        disabled={!repetir && (semTempoRepetir || travado || !!link)}
         title={repetirAuto
           ? "Repetindo sozinho enquanto o comercial fala"
-          : semTempoRepetir
-            ? "Faltando menos de 10 s não dá para repetir"
-            : "Repetir a música atual"}
+          : !repetir && (travado || link)
+            ? avisoTravado
+            : semTempoRepetir
+              ? "Faltando menos de 10 s não dá para repetir"
+              : "Repetir a música atual"}
         aria-label="Repetir"
       >
         <Icone nome="repetir" tamanho={20} />
       </button>
       <button
         onclick={api.proxima}
-        title={agendado || link ? "Agendamento não pode ser pulado" : "Passar para a próxima"}
+        title={travado || link ? avisoTravado : "Passar para a próxima"}
         aria-label="Passar"
-        disabled={!noAr || agendado || !!link}
+        disabled={!noAr || travado || !!link}
       >
         <Icone nome="skip" tamanho={20} />
       </button>
