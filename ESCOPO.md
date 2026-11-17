@@ -95,7 +95,10 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
   - **Repetir:** a música atual toca de novo no fim; a fila espera.
   - **Passar** não funciona durante comercial/hora certa (agendamento não se pula).
 - **Cartucheira:** 8 botões fixos; só toca (configuração na aba Cartucheira).
-- **Músicas:** busca por música, artista ou pasta (sem acento/maiúscula), 🎧 pré-escuta e ➕ adicionar. Ícone de pasta troca a pasta de músicas.
+- **Músicas:** dois botões ao lado da busca escolhem o tipo de pesquisa: **cantor** (microfone, padrão ao abrir) ou **texto** (abc). 🎧 pré-escuta e ➕ adicionar. Ícone de pasta troca a pasta de músicas.
+  - **Cantor:** lista de todos os cantores em ordem alfabética, com a quantidade de músicas; a busca filtra a lista (opcional). Clicar num cantor mostra **todas** as músicas dele e o nome fica na busca (azul); **clicar na busca volta** aos cantores, no mesmo ponto da lista. Só as linhas visíveis são desenhadas (leve com milhares de cantores).
+  - **Texto:** a busca de antes, por música, artista ou pasta (sem acento/maiúscula).
+  - Cada tipo guarda o que foi digitado nele.
 - **Fila:** ícone colorido por tipo (🎵 verde música, 🎙 amarelo pasta/programa, ✨ roxo vinheta), duração, lixeira, arrastar pelos 6 pontinhos para reordenar. Topo mostra a lista de músicas ativa e "N/10 · total".
 - **Pastas:** seletor com as pastas da aba Pastas (ordem alfabética) e os arquivos delas, com 🎧 e ➕.
 - **Pré-escuta:** o 🎧 vira ■ e uma barrinha mostra o andamento; **clicar na linha pula** para aquele ponto. Toca numa saída separada e não mexe no que está no ar (por enquanto na mesma placa de som).
@@ -125,6 +128,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 
 - Acervo de ~**100 mil músicas**, em **subpastas**.
 - Padrão de nome `Artista - Música.mp3`; fora do padrão, o nome inteiro vira a música e o artista fica em branco.
+- **Cantores:** o artista do nome do arquivo. Grafias que só mudam **acento, maiúscula, "&"/"e", pontuação ou espaços a mais** viram um cantor só ("Peão José" = "PEÃO JOSÉ"; "Jorge & Mateus" = "Jorge e Mateus"; "Jota-Quest" = "Jota Quest"; "Zé Neto  e Cristiano." = "Zé Neto e Cristiano"). Participação continua separada ("Henrique & Juliano part. Marília" ≠ "Henrique & Juliano"). Nome mostrado: a grafia com mais músicas; empate, a com mais acentos e maiúsculas. Música sem artista no nome não aparece na lista de cantores (só na busca por texto).
 - Busca em memória pelos **nomes** dos arquivos e das **pastas** ("sertanejo" acha as músicas da pasta Sertanejo). Palavras em qualquer ordem; traço e outros sinais são ignorados ("jorge - amor" = "amor jorge"). Mostra até 200, **as mais certeiras primeiro**: música ou artista que começa com o que foi digitado, depois palavra que começa com a primeira palavra digitada, depois o resto; por último as que só batem pelo nome da pasta. Cada música aparece uma vez só.
 - `indice.txt` para abrir na hora; atualização **automática** quando entra/sai/renomeia música; botão **Atualizar** se der erro. **Ao abrir**, depois de carregar o `indice.txt`, relê a pasta inteira procurando mudanças (só os nomes, ~1–2 s) e atualiza o índice se algo mudou — no Google Drive o Windows nem sempre avisa. A rádio espera essa procura para começar a tocar, no máximo **15 s**.
 - Pasta de **lista** que o índice ainda não conhece (pasta nova) é lida **direto do disco**: a lista nunca cai no acervo todo por isso.

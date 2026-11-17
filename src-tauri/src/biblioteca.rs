@@ -34,10 +34,23 @@ fn chave(texto: &str) -> String {
     deunicode(texto).to_lowercase()
 }
 
+/// Chave que agrupa o cantor: sem acento, minúsculo, "&" igual a "e" e
+/// pontuação e espaços a mais ignorados ("Jorge & Mateus." = "jorge e mateus").
+fn chave_cantor(artista: &str) -> String {
+    chave(artista)
+        .replace('&', " e ")
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub struct Faixa {
     /// Caminho relativo à pasta de músicas.
     pub rel: String,
     pub artista: String,
+    /// Agrupa o cantor na pesquisa por cantor (veja `chave_cantor`); vazio = sem artista.
+    cantor: String,
     pub musica: String,
     /// "artista música" normalizado para a busca.
     chave: String,
@@ -58,14 +71,23 @@ impl Faixa {
             .parent()
             .map(|p| p.components().map(|c| chave(&c.as_os_str().to_string_lossy())).collect::<Vec<_>>().join(" "))
             .unwrap_or_default();
-        Self { rel, artista, musica, chave: chave_faixa, inicio_musica, pasta }
+        let cantor = chave_cantor(&artista);
+        Self { rel, artista, musica, cantor, chave: chave_faixa, inicio_musica, pasta }
+    }
+
+    fn chave_artista(&self) -> &str {
+        &self.chave[..self.inicio_musica - 1]
+    }
+
+    fn chave_musica(&self) -> &str {
+        &self.chave[self.inicio_musica..]
     }
 
     /// Quão certeira é para a busca (menor = melhor): 0 = a música ou o
     /// artista começa com o que foi digitado; 1 = alguma palavra começa com a
     /// primeira palavra digitada; 2 = o resto.
     fn nota(&self, frase: &str, primeira: &str) -> u8 {
-        let (artista, musica) = (&self.chave[..self.inicio_musica - 1], &self.chave[self.inicio_musica..]);
+        let (artista, musica) = (self.chave_artista(), self.chave_musica());
         if musica.starts_with(frase) || artista.starts_with(frase) {
             0
         } else if self.chave.split(|c: char| !c.is_alphanumeric()).any(|p| p.starts_with(primeira)) {
@@ -81,6 +103,23 @@ pub struct FaixaDto {
     pub caminho: String,
     pub artista: String,
     pub musica: String,
+}
+
+/// Cantor da pesquisa por cantor: grafias que só mudam acento, maiúscula, "&"/"e",
+/// pontuação ou espaços ("Peão José", "Peao jose") viram um só.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct CantorDto {
+    /// Nome mostrado: a grafia com mais músicas (empate: a com mais acentos e
+    /// maiúsculas, depois a ordem alfabética).
+    pub nome: String,
+    /// Identifica o cantor (veja `chave_cantor`) e serve para filtrar.
+    pub chave: String,
+    pub qtd: usize,
+}
+
+/// Quantos acentos e maiúsculas a grafia tem (desempate do nome mostrado).
+fn capricho(s: &str) -> usize {
+    s.chars().filter(|c| !c.is_ascii() || c.is_uppercase()).count()
 }
 
 #[derive(Default)]
@@ -210,6 +249,42 @@ impl Biblioteca {
         // Estável: dentro da mesma nota, segue a ordem do acervo.
         achadas.sort_by_key(|(nota, _)| *nota);
         achadas.into_iter().take(limite).map(|(_, f)| self.dto(f)).collect()
+    }
+
+    /// Cantores do acervo em ordem alfabética (sem ligar para acento), com a
+    /// quantidade de músicas. Músicas sem artista no nome ficam de fora.
+    /// Grafias que só mudam acento, maiúscula, "&"/"e", pontuação ou espaços juntam.
+    pub fn cantores(&self) -> Vec<CantorDto> {
+        // chave -> (grafia -> músicas)
+        let mut grupos: HashMap<&str, HashMap<&str, usize>> = HashMap::new();
+        for f in &self.faixas {
+            if f.cantor.is_empty() {
+                continue;
+            }
+            *grupos.entry(f.cantor.as_str()).or_default().entry(f.artista.as_str()).or_default() += 1;
+        }
+        let mut v: Vec<CantorDto> = grupos
+            .into_iter()
+            .map(|(chave, grafias)| {
+                let qtd = grafias.values().sum();
+                let nome = grafias
+                    .into_iter()
+                    .max_by(|(a, na), (b, nb)| na.cmp(nb).then(capricho(a).cmp(&capricho(b))).then(b.cmp(a)))
+                    .map(|(g, _)| g.to_string())
+                    .unwrap_or_default();
+                CantorDto { nome, chave: chave.to_string(), qtd }
+            })
+            .collect();
+        v.sort_by(|a, b| a.chave.cmp(&b.chave).then(a.nome.cmp(&b.nome)));
+        v
+    }
+
+    /// Todas as músicas de um cantor (pela `chave` de `CantorDto`), em ordem
+    /// alfabética da música.
+    pub fn musicas_do_cantor(&self, chave_cantor: &str) -> Vec<FaixaDto> {
+        let mut v: Vec<&Faixa> = self.faixas.iter().filter(|f| !f.cantor.is_empty() && f.cantor == chave_cantor).collect();
+        v.sort_by(|a, b| a.chave_musica().cmp(b.chave_musica()).then(a.rel.cmp(&b.rel)));
+        v.into_iter().map(|f| self.dto(f)).collect()
     }
 
     /// Próxima música do baralho de uma pasta (com subpastas); `None` = acervo
@@ -406,6 +481,61 @@ mod testes {
         assert_eq!(nomes("alok"), ["Alok - Hear Me Now", "Alok - Ocean", "Vintage Culture - Cante"]);
         // Palavra da pasta + palavra do artista.
         assert_eq!(nomes("raiz tonico"), ["Tonico - Chico Mineiro"]);
+    }
+
+    #[test]
+    fn cantores_juntam_acento_e_maiuscula() {
+        let b = acervo(&[
+            "a/Peão José - Moda 1.mp3",
+            "a/Peão José - Moda 2.mp3",
+            "b/Peao jose - Moda 3.mp3",
+            "b/PEÃO JOSÉ - Moda 4.mp3",
+            "Jorge e Mateus - Sol.mp3",
+            "Jorge & Mateus - Lua.mp3",
+            "Ângela - Noite.mp3",
+            "Bia - Dia.mp3",
+            "sem artista.mp3",
+        ]);
+        let c = b.cantores();
+        let nomes: Vec<(&str, usize)> = c.iter().map(|c| (c.nome.as_str(), c.qtd)).collect();
+        // Acento, maiúscula e "&"/"e" juntam. Sem artista fica de fora.
+        // Ordem sem ligar para acento: "Ângela" antes de "Bia".
+        assert_eq!(nomes, [("Ângela", 1), ("Bia", 1), ("Jorge & Mateus", 2), ("Peão José", 4)]);
+        let musicas: Vec<String> = b.musicas_do_cantor("peao jose").into_iter().map(|f| f.musica).collect();
+        assert_eq!(musicas, ["Moda 1", "Moda 2", "Moda 3", "Moda 4"]);
+    }
+
+    #[test]
+    fn cantores_juntam_pontuacao_e_espacos() {
+        let b = acervo(&[
+            "Zé Neto & Cristiano - A.mp3",
+            "Ze Neto e Cristiano. - B.mp3",
+            "Zé  Neto   e Cristiano - C.mp3",
+            "Zé Neto, Cristiano - D.mp3",
+            "Jota-Quest - E.mp3",
+            "Jota Quest - F.mp3",
+            "Henrique & Juliano part. Marília - G.mp3",
+            "Henrique & Juliano - H.mp3",
+        ]);
+        let nomes: Vec<(String, usize)> = b.cantores().into_iter().map(|c| (c.chave, c.qtd)).collect();
+        // "part." continua separado: muda o cantor, não só a escrita.
+        assert_eq!(
+            nomes,
+            [
+                ("henrique e juliano".to_string(), 1),
+                ("henrique e juliano part marilia".to_string(), 1),
+                ("jota quest".to_string(), 2),
+                ("ze neto cristiano".to_string(), 1),
+                ("ze neto e cristiano".to_string(), 3),
+            ]
+        );
+        assert_eq!(b.musicas_do_cantor("ze neto e cristiano").len(), 3);
+    }
+
+    #[test]
+    fn nome_do_cantor_empatado_prefere_acento() {
+        let b = acervo(&["Peao jose - A.mp3", "Peão José - B.mp3"]);
+        assert_eq!(b.cantores()[0].nome, "Peão José");
     }
 
     fn acervo(rels: &[&str]) -> Biblioteca {

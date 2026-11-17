@@ -142,6 +142,14 @@ export interface Faixa {
   musica: string;
 }
 
+/** Cantor da pesquisa por cantor (grafias que só mudam acento/maiúscula juntas). */
+export interface Cantor {
+  nome: string;
+  /** Sem acento e minúsculo: identifica o cantor e serve para filtrar. */
+  chave: string;
+  qtd: number;
+}
+
 export interface Bloqueios {
   agendamentos: boolean;
   pastas: boolean;
@@ -157,6 +165,8 @@ export interface Pasta {
 export const api = {
   estado: () => invoke<Retrato>("estado"),
   buscar: (termo: string) => invoke<Faixa[]>("buscar", { termo }),
+  cantores: () => invoke<Cantor[]>("cantores"),
+  musicasDoCantor: (chave: string) => invoke<Faixa[]>("musicas_do_cantor", { chave }),
   programas: () => invoke<Pasta[]>("programas"),
   arquivosDaPasta: (caminho: string) => invoke<Pasta[]>("arquivos_da_pasta", { caminho }),
   filaAdicionar: (caminho: string, tipo: Tipo, posicao?: number) =>

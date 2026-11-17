@@ -10,7 +10,7 @@ mod registro;
 mod sistema;
 
 use agenda::{Agendamento, ModoLista, Rodizio, TipoAgenda};
-use biblioteca::{Biblioteca, FaixaDto};
+use biblioteca::{Biblioteca, CantorDto, FaixaDto};
 use config::Config;
 use motor::{EventoMotor, Motor};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -1278,6 +1278,16 @@ fn buscar(estado: State<Compartilhado>, termo: String) -> Vec<FaixaDto> {
     travar(&estado).bib.buscar(&termo, 200)
 }
 
+#[tauri::command]
+fn cantores(estado: State<Compartilhado>) -> Vec<CantorDto> {
+    travar(&estado).bib.cantores()
+}
+
+#[tauri::command]
+fn musicas_do_cantor(estado: State<Compartilhado>, chave: String) -> Vec<FaixaDto> {
+    travar(&estado).bib.musicas_do_cantor(&chave)
+}
+
 #[derive(Serialize, Clone)]
 struct Pasta {
     nome: String,
@@ -1859,6 +1869,8 @@ pub fn run() {
             reiniciar_programa,
             fechar_programa,
             buscar,
+            cantores,
+            musicas_do_cantor,
             programas,
             arquivos_da_pasta,
             fila_adicionar,
