@@ -169,6 +169,8 @@ struct LinkAtivo {
     url: String,
     /// Já está no ar (antes disso, toca a abertura).
     ligado: bool,
+    /// Ajuste de volume do link, em dB.
+    ganho_db: f64,
 }
 
 type Compartilhado = Arc<Mutex<Estado>>;
@@ -431,7 +433,7 @@ impl Estado {
         if link.ligado {
             return;
         }
-        match motor.link_ligar(&link.url) {
+        match motor.link_ligar(&link.url, link.ganho_db) {
             Ok(()) => link.ligado = true,
             Err(e) => self.erro_motor = Some(e),
         }
@@ -1036,7 +1038,7 @@ fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Ag
     if let Some(abertura) = ag.abertura.as_deref().and_then(|p| agenda::um_da_pasta(p, &mut e.rodizio, &dir)) {
         agendar_em_sequencia(app, estado, e, vec![abertura], Tipo::Vinheta);
     }
-    e.link = Some(LinkAtivo { url, ligado: false });
+    e.link = Some(LinkAtivo { url, ligado: false, ganho_db: ag.volume_db });
     if e.tocando.is_some() {
         // Quando o fade acabar, o motor fica sem nada e o evento de silêncio
         // entrega a abertura ou liga o link.

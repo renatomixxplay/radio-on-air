@@ -77,6 +77,9 @@ pub struct Agendamento {
     /// Link: endereço do áudio ao vivo (MP3/AAC).
     #[serde(default)]
     pub url: Option<String>,
+    /// Link: ajuste de volume em dB (0 = como chega; -6 = abaixa).
+    #[serde(default)]
+    pub volume_db: f64,
     /// Desativado: fica na lista mas não toca (nem conta como horário ocupado).
     #[serde(default = "ativo_padrao")]
     pub ativo: bool,
@@ -601,7 +604,7 @@ mod testes {
 
     fn ag(id: u64, horario: &str, dias: [bool; 7], tipo: TipoAgenda) -> Agendamento {
         let horarios = horario.split(',').map(|h| h.trim().to_string()).collect();
-        Agendamento { id, horarios, dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None, ativo: true, pula_feriado: false, outras_datas: vec![] }
+        Agendamento { id, horarios, dias, tipo, pastas: vec![], abertura: None, comercial_hora: None, intervalo: None, modo_lista: ModoLista::DepoisDesta, url: None, volume_db: 0.0, ativo: true, pula_feriado: false, outras_datas: vec![] }
     }
 
     #[test]

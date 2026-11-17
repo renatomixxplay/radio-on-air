@@ -80,9 +80,19 @@
       a.tipo === "hora_certa"
         ? PARTES_HORA.map((p) => pastaHora(a, p.chave)).filter((c): c is string => !!c)
         : a.pastas.map((p) => p.caminho);
-    if (a.tipo === "link") return [a.abertura ? nomePasta(a.abertura) : null, a.url].filter(Boolean).join(" + ");
+    if (a.tipo === "link") {
+      const nomes = [a.abertura ? nomePasta(a.abertura) : null, a.url].filter(Boolean).join(" + ");
+      return a.volume_db ? `${nomes} (${textoVolume(a.volume_db)})` : nomes;
+    }
     return caminhos.map(nomePasta).join(" + ");
   }
+
+  /** Ajuste de volume do link: de -30 a +12 dB, de 1 em 1. */
+  function mudarVolume(passo: number) {
+    if (!edicao) return;
+    edicao.volume_db = Math.min(12, Math.max(-30, (edicao.volume_db ?? 0) + passo));
+  }
+  const textoVolume = (db: number) => (db === 0 ? "0 dB (como chega)" : `${db > 0 ? "+" : "−"}${Math.abs(db)} dB`);
 
   function definirHora(k: ParteHora, caminho: string | null) {
     if (!edicao) return;
@@ -102,7 +112,7 @@
 
   function novo() {
     erro = "";
-    edicao = { id: 0, horarios: ["08:00"], dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null, ativo: true, pula_feriado: false, outras_datas: [] };
+    edicao = { id: 0, horarios: ["08:00"], dias: [true, true, true, true, true, true, true], tipo: "comercial", pastas: [], abertura: null, comercial_hora: null, intervalo: null, modo_lista: "depois_desta", url: null, volume_db: 0, ativo: true, pula_feriado: false, outras_datas: [] };
   }
 
   /** Nova data sem tocar, em branco: escolhe no calendário. Em branco não é salva. */
@@ -272,6 +282,16 @@
       {#if edicao.tipo === "link"}
         <div class="campo">Endereço do link (MP3 ou AAC)</div>
         <input class="url" type="url" placeholder="https://…" bind:value={edicao.url} spellcheck="false" />
+        <div class="campo">Volume do link</div>
+        <div class="volume">
+          <button class="quadrado" onclick={() => mudarVolume(-1)} aria-label="Abaixar o volume" title="Abaixar 1 dB">
+            <Icone nome="menos" tamanho={20} />
+          </button>
+          <span class="mono valor">{textoVolume(edicao.volume_db ?? 0)}</span>
+          <button class="quadrado" onclick={() => mudarVolume(1)} aria-label="Aumentar o volume" title="Aumentar 1 dB">
+            <Icone nome="plus" tamanho={20} />
+          </button>
+        </div>
         <div class="campo">Abertura</div>
         {#if edicao.abertura}
           <div class="pasta">
@@ -739,6 +759,21 @@
   }
   .espaco {
     margin-top: 14px;
+  }
+  .volume {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .volume .quadrado {
+    width: 40px;
+    height: 40px;
+  }
+  .volume .valor {
+    min-width: 150px;
+    text-align: center;
+    font-size: 17px;
   }
   .modos {
     display: grid;

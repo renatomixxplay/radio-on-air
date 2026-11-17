@@ -123,6 +123,8 @@ export interface Agendamento {
   outras_datas?: string[];
   /** Link: endereço do áudio ao vivo (MP3/AAC). */
   url?: string | null;
+  /** Link: ajuste de volume em dB (0 = como chega; -6 = abaixa). */
+  volume_db?: number;
 }
 
 export interface Previa {

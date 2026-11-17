@@ -13,6 +13,7 @@
   import folderOpen from "@tabler/icons/outline/folder-open.svg?raw";
   import search from "@tabler/icons/outline/search.svg?raw";
   import plus from "@tabler/icons/outline/plus.svg?raw";
+  import menos from "@tabler/icons/outline/minus.svg?raw";
   import x from "@tabler/icons/outline/x.svg?raw";
   import refresh from "@tabler/icons/outline/refresh.svg?raw";
   import calendar from "@tabler/icons/outline/calendar.svg?raw";
@@ -39,7 +40,7 @@
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
-    search, plus, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto, aovivo, gravar, transmitir,
+    search, plus, menos, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto, aovivo, gravar, transmitir,
     telaCheia, sairTelaCheia, texto,
     cantor: ducking,
   };

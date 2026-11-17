@@ -232,7 +232,9 @@ server.register(namespace="aovivo", description="Desliga o link", "desligar", fu
   "OK"
 end)
 vol_link = interactive.float("vol_link", 1.0)
-link_ar = fallback(track_sensitive=false, [amplify(override=null, vol_link, aovivo), blank()])
+# Ajuste de volume de cada link (o programa manda antes de ligar).
+ganho_link = interactive.float("ganho_link", 1.0)
+link_ar = fallback(track_sensitive=false, [amplify(override=null, fun () -> vol_link() * ganho_link(), aovivo), blank()])
 
 radio = add(normalize=false, [musica, link_ar, fala_ar, cart])
 {saida_ar}
@@ -400,7 +402,10 @@ impl Motor {
     }
 
     /// Liga o link ao vivo (tenta reconectar sozinho se cair).
-    pub fn link_ligar(&self, url: &str) -> Result<(), String> {
+    /// `ganho_db`: ajuste de volume do link (0 = como chega).
+    pub fn link_ligar(&self, url: &str, ganho_db: f64) -> Result<(), String> {
+        let ganho = 10f64.powf(ganho_db.clamp(-30.0, 12.0) / 20.0);
+        self.comando(&format!("var.set ganho_link = {ganho:.4}"))?;
         self.comando(&format!("aovivo.ligar {}", url.trim())).map(|_| ())
     }
 
