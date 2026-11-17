@@ -43,6 +43,9 @@ pub struct Faixa {
     chave: String,
     /// Onde começa a música dentro da `chave`.
     inicio_musica: usize,
+    /// Nomes das pastas onde a música está ("Sertanejo/Raiz" -> "sertanejo raiz"),
+    /// normalizados: a busca por gênero acha as músicas das playlists com esse nome.
+    pasta: String,
 }
 
 impl Faixa {
@@ -50,8 +53,12 @@ impl Faixa {
         let (artista, musica) = artista_e_musica(Path::new(&rel));
         let artista_chave = chave(&artista);
         let inicio_musica = artista_chave.len() + 1;
-        let chave = format!("{artista_chave} {}", chave(&musica));
-        Self { rel, artista, musica, chave, inicio_musica }
+        let chave_faixa = format!("{artista_chave} {}", chave(&musica));
+        let pasta = Path::new(&rel)
+            .parent()
+            .map(|p| p.components().map(|c| chave(&c.as_os_str().to_string_lossy())).collect::<Vec<_>>().join(" "))
+            .unwrap_or_default();
+        Self { rel, artista, musica, chave: chave_faixa, inicio_musica, pasta }
     }
 
     /// Quão certeira é para a busca (menor = melhor): 0 = a música ou o
@@ -174,9 +181,12 @@ impl Biblioteca {
         Ok(())
     }
 
-    /// Busca por música ou artista. Todas as palavras digitadas precisam
+    /// Busca por música, artista ou nome da pasta (ex.: "sertanejo" acha as
+    /// músicas das pastas com esse nome). Todas as palavras digitadas precisam
     /// aparecer, em qualquer ordem; traço e outros sinais são ignorados. As
-    /// mais certeiras vêm primeiro (veja `Faixa::nota`).
+    /// mais certeiras vêm primeiro (veja `Faixa::nota`); as que só batem pelo
+    /// nome da pasta vêm por último. Cada música aparece uma vez só, mesmo que
+    /// bata pelo artista e pela pasta.
     pub fn buscar(&self, termo: &str, limite: usize) -> Vec<FaixaDto> {
         let termo = chave(termo);
         let palavras: Vec<&str> = termo.split(|c: char| !c.is_alphanumeric()).filter(|p| !p.is_empty()).collect();
@@ -187,8 +197,15 @@ impl Biblioteca {
         let mut achadas: Vec<(u8, &Faixa)> = self
             .faixas
             .iter()
-            .filter(|f| palavras.iter().all(|p| f.chave.contains(p)))
-            .map(|f| (f.nota(&frase, primeira), f))
+            .filter_map(|f| {
+                if palavras.iter().all(|p| f.chave.contains(p)) {
+                    Some((f.nota(&frase, primeira), f))
+                } else if palavras.iter().all(|p| f.chave.contains(p) || f.pasta.contains(p)) {
+                    Some((3, f))
+                } else {
+                    None
+                }
+            })
             .collect();
         // Estável: dentro da mesma nota, segue a ordem do acervo.
         achadas.sort_by_key(|(nota, _)| *nota);
@@ -371,6 +388,24 @@ mod testes {
         // Começa com "amor" (artista ou música) > palavra que começa com "amor" > o resto.
         assert_eq!(nomes("amor"), ["Amora - Chuva", "Bia - Amor Perfeito", "Zeca - Meu Amor Antigo", " - Sem artista amor", "Ana - Clamor"]);
         assert_eq!(nomes("amor perfeito")[0], "Bia - Amor Perfeito");
+    }
+
+    #[test]
+    fn busca_acha_pelo_nome_da_pasta_sem_repetir() {
+        let b = acervo(&[
+            "Sertanejo Raiz/Tonico - Chico Mineiro.mp3",
+            "Alok/Alok - Hear Me Now.mp3",
+            "Alok/Vintage Culture - Cante.mp3",
+            "Pop/Alok - Ocean.mp3",
+            "Pop/Ana - Sertaneja.mp3",
+        ]);
+        let nomes = |t: &str| b.buscar(t, 10).into_iter().map(|f| format!("{} - {}", f.artista, f.musica)).collect::<Vec<_>>();
+        // Pelo nome da música primeiro; depois as da pasta.
+        assert_eq!(nomes("sertanej"), ["Ana - Sertaneja", "Tonico - Chico Mineiro"]);
+        // Música do Alok na pasta Alok aparece uma vez só; artista antes de "só pela pasta".
+        assert_eq!(nomes("alok"), ["Alok - Hear Me Now", "Alok - Ocean", "Vintage Culture - Cante"]);
+        // Palavra da pasta + palavra do artista.
+        assert_eq!(nomes("raiz tonico"), ["Tonico - Chico Mineiro"]);
     }
 
     fn acervo(rels: &[&str]) -> Biblioteca {

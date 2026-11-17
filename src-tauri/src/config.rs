@@ -50,7 +50,7 @@ pub struct Audio {
 pub struct Gravacao {
     pub ligada: bool,
     pub pasta: Option<PathBuf>,
-    /// kbps (mono): 24 ou 32.
+    /// kbps (mono): 16, 24 ou 32.
     pub bitrate: u32,
     /// Tamanho de cada arquivo: 60 ou 30 minutos.
     pub minutos: u32,
@@ -100,7 +100,7 @@ impl Gravacao {
         if ![30, 60].contains(&self.minutos) {
             self.minutos = 60;
         }
-        if ![24, 32].contains(&self.bitrate) {
+        if ![16, 24, 32].contains(&self.bitrate) {
             self.bitrate = 24;
         }
         if self.ligada && self.pasta.is_none() {

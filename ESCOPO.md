@@ -95,7 +95,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
   - **Repetir:** a música atual toca de novo no fim; a fila espera.
   - **Passar** não funciona durante comercial/hora certa (agendamento não se pula).
 - **Cartucheira:** 8 botões fixos; só toca (configuração na aba Cartucheira).
-- **Músicas:** busca por música ou artista (sem acento/maiúscula), 🎧 pré-escuta e ➕ adicionar. Ícone de pasta troca a pasta de músicas.
+- **Músicas:** busca por música, artista ou pasta (sem acento/maiúscula), 🎧 pré-escuta e ➕ adicionar. Ícone de pasta troca a pasta de músicas.
 - **Fila:** ícone colorido por tipo (🎵 verde música, 🎙 amarelo pasta/programa, ✨ roxo vinheta), duração, lixeira, arrastar pelos 6 pontinhos para reordenar. Topo mostra a lista de músicas ativa e "N/10 · total".
 - **Pastas:** seletor com as pastas da aba Pastas (ordem alfabética) e os arquivos delas, com 🎧 e ➕.
 - **Pré-escuta:** o 🎧 vira ■ e uma barrinha mostra o andamento; **clicar na linha pula** para aquele ponto. Toca numa saída separada e não mexe no que está no ar (por enquanto na mesma placa de som).
@@ -125,7 +125,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 
 - Acervo de ~**100 mil músicas**, em **subpastas**.
 - Padrão de nome `Artista - Música.mp3`; fora do padrão, o nome inteiro vira a música e o artista fica em branco.
-- Busca em memória só pelos **nomes** dos arquivos. Palavras em qualquer ordem; traço e outros sinais são ignorados ("jorge - amor" = "amor jorge"). Mostra até 200, **as mais certeiras primeiro**: música ou artista que começa com o que foi digitado, depois palavra que começa com a primeira palavra digitada, depois o resto.
+- Busca em memória pelos **nomes** dos arquivos e das **pastas** ("sertanejo" acha as músicas da pasta Sertanejo). Palavras em qualquer ordem; traço e outros sinais são ignorados ("jorge - amor" = "amor jorge"). Mostra até 200, **as mais certeiras primeiro**: música ou artista que começa com o que foi digitado, depois palavra que começa com a primeira palavra digitada, depois o resto; por último as que só batem pelo nome da pasta. Cada música aparece uma vez só.
 - `indice.txt` para abrir na hora; atualização **automática** quando entra/sai/renomeia música; botão **Atualizar** se der erro. **Ao abrir**, depois de carregar o `indice.txt`, relê a pasta inteira procurando mudanças (só os nomes, ~1–2 s) e atualiza o índice se algo mudou — no Google Drive o Windows nem sempre avisa. A rádio espera essa procura para começar a tocar, no máximo **15 s**.
 - Pasta de **lista** que o índice ainda não conhece (pasta nova) é lida **direto do disco**: a lista nunca cai no acervo todo por isso.
 - Duração lida do **cabeçalho** do arquivo só quando ele entra na fila (sem decodificar o áudio).
@@ -169,7 +169,7 @@ Por **horário + dias da semana**. O programa só preenche/executa — não exis
 ## 7. Áudio (Fase 3)
 
 - ✅ **Placa de som** (Configurações): saída principal, pré-escuta e entrada (mesa), cada uma com "Padrão do sistema" ou uma placa. Linux: lista do PulseAudio (`pactl`); Mac (desenvolvimento): lista do `ffmpeg`. Trocar a saída reinicia o motor (a música atual é interrompida e segue a próxima).
-- ✅ **Gravação** da **entrada da placa** (o que vem da mesa) em MP3 mono (**24** ou **32** kbps, padrão 24). Um arquivo a cada **30 min** (padrão) ou **1 hora**, cortado na virada do relógio: `<pasta>/15-11-2026/14-00.mp3` (pasta do dia, arquivo com a hora do início). Chave liga/desliga: ligada, grava sempre que o programa está aberto. Pastas de dia com **mais de 30 dias são apagadas** (só pastas com nome dd-mm-aaaa).
+- ✅ **Gravação** da **entrada da placa** (o que vem da mesa) em MP3 mono (**16**, **24** ou **32** kbps, padrão 24). Um arquivo a cada **30 min** (padrão) ou **1 hora**, cortado na virada do relógio: `<pasta>/15-11-2026/14-00.mp3` (pasta do dia, arquivo com a hora do início). Chave liga/desliga: ligada, grava sempre que o programa está aberto. Pastas de dia com **mais de 30 dias são apagadas** (só pastas com nome dd-mm-aaaa).
 - ✅ **Transmissão** Icecast da **entrada da placa**, em MP3: servidor, porta, senha, ponto de montagem, bitrate, samplerate, mono/estéreo. Chave liga/desliga; se cair, tenta de novo a cada 5 s. Mostra No ar / Conectando / Erro.
 - Gravação e transmissão rodam num **segundo Liquidsoap** (`captura.liq` / `captura.log`), separado do que toca: mudar essas configurações não interrompe o som no ar. Se ele parar, volta sozinho em 5 s.
 - 💡 Transmissão em AAC e servidor Shoutcast (hoje: MP3 e Icecast).

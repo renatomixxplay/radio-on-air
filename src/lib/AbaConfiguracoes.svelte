@@ -206,7 +206,7 @@
           <span>Qualidade (MP3 mono)</span>
         </div>
         <div class="chips">
-          {#each [24, 32] as b}
+          {#each [16, 24, 32] as b}
             <button class="chip" class:on={r.gravacao.bitrate === b} onclick={() => gravacao({ bitrate: b })}>{b}</button>
           {/each}
           <span class="suave">kbps</span>
