@@ -781,6 +781,17 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
             }
         }
         let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
+        // A abertura do link acabou: liga o link pelo relógio, sem depender do
+        // aviso de "motor vazio" (que pode não vir).
+        let abertura_acabou =
+            e.link.as_ref().is_some_and(|l| !l.ligado) && e.pendentes.is_empty() && !e.tem_entregue() && falta.is_some_and(|f| f <= -0.3);
+        if abertura_acabou {
+            registro::anotar("relógio: abertura acabou → liga o link");
+            e.tocando = None;
+            e.ligar_link_se_pronto();
+            emitir(&app, &e);
+            continue;
+        }
         if !falta.is_some_and(|f| f <= ANTECEDENCIA) {
             continue;
         }
@@ -837,13 +848,19 @@ fn fade_e_proxima(app: AppHandle, estado: Compartilhado, pos_ducking: bool) {
         e.repeticao_enviada = false;
         e.destravar_tudo();
         // Não espera o motor avisar que ficou vazio (o aviso pode não vir e a
-        // rádio ficava muda): manda a próxima já. No link, quem entra é a
-        // abertura/link, pelo aviso do motor, como antes.
+        // rádio ficava muda): manda a próxima já. No link, entra a abertura
+        // (se tiver) ou o próprio link. (No Linux, depois do pulo com
+        // crossfade, o aviso não vinha e o link nunca entrava.)
         if e.no_ar && e.link.is_none() {
             registro::anotar("fade: manda a próxima sem esperar o aviso do motor");
             e.tocando = None;
             completar_fila(&app, &estado, &mut e);
             e.enviar_proximo();
+        } else if e.no_ar && e.link.is_some() {
+            registro::anotar("fade: entra a abertura ou o link sem esperar o aviso do motor");
+            e.tocando = None;
+            e.enviar_proximo();
+            e.ligar_link_se_pronto();
         }
         emitir(&app, &e);
     });
