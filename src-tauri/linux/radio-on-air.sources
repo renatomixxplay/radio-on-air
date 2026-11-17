@@ -1,0 +1,7 @@
+# Atualizações do Radio On Air (e do Liquidsoap que ele usa).
+# Instalado junto com o programa: "sudo apt update && sudo apt upgrade" já traz
+# a versão nova.
+Types: deb
+URIs: https://renatomixxplay.github.io/radio-on-air/apt/
+Suites: ./
+Signed-By: /usr/share/keyrings/radio-on-air.asc

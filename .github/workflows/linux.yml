@@ -1,0 +1,180 @@
+# Gera o instalador do Linux (Debian 13) e publica as atualizações.
+# Roda só quando alguém manda: aba Actions do GitHub → "Instalador Linux" →
+# "Run workflow", com o número da versão nova (ex.: 0.1.1).
+#
+# No fim:
+#  - o .deb fica para baixar (Artifacts);
+#  - o repositório apt em https://renatomixxplay.github.io/radio-on-air/apt/
+#    passa a ter a versão nova: as rádios recebem com "apt upgrade".
+name: Instalador Linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      versao:
+        description: "Número da versão nova (ex.: 0.1.1). Tem que ser maior que a última publicada."
+        required: true
+
+env:
+  LIQUIDSOAP_VERSAO: "2.4.6"
+  # Pacote oficial do Liquidsoap. O Debian 13 traz uma versão mais antiga, por
+  # isso o nosso repositório apt leva este junto.
+  LIQUIDSOAP_DEBIAN: "liquidsoap_2.4.6-debian-trixie-ocaml4.14.2-3_amd64.deb"
+  # Só para os testes (a máquina do GitHub é Ubuntu 24.04).
+  LIQUIDSOAP_UBUNTU: "liquidsoap_2.4.6-ubuntu-noble-ocaml4.14.2-3_amd64.deb"
+  SITE: "https://renatomixxplay.github.io/radio-on-air"
+
+jobs:
+  instalador:
+    # Compila no Ubuntu 24.04: o que sai daqui roda no Debian 13 (que é mais novo).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir o número da versão
+        env:
+          VERSAO: ${{ inputs.versao }}
+        run: |
+          if ! echo "$VERSAO" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Versão '$VERSAO' inválida. Use três números, ex.: 0.1.1"
+            exit 1
+          fi
+          # A versão nova tem que ser maior que a publicada, senão o apt não atualiza.
+          publicada=$(curl -fsSL "$SITE/apt/Packages" 2>/dev/null \
+            | awk '/^Package: radio-on-air$/{p=1} p&&/^Version:/{print $2; exit}' || true)
+          echo "Publicada: ${publicada:-nenhuma}"
+          if [ -n "$publicada" ] && ! dpkg --compare-versions "$VERSAO" gt "$publicada"; then
+            echo "::error::A versão $VERSAO não é maior que a publicada ($publicada)."
+            exit 1
+          fi
+          sed -i "0,/\"version\": \"[^\"]*\"/s//\"version\": \"$VERSAO\"/" src-tauri/tauri.conf.json
+          sed -i "0,/^version = \".*\"/s//version = \"$VERSAO\"/" src-tauri/Cargo.toml
+          grep '"version"' src-tauri/tauri.conf.json
+
+      - name: Bibliotecas para compilar
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+
+      - name: Dependências do programa
+        run: npm ci
+
+      - name: Liquidsoap (para os testes)
+        run: |
+          curl -fL -o /tmp/liquidsoap.deb \
+            "https://github.com/savonet/liquidsoap/releases/download/v$LIQUIDSOAP_VERSAO/$LIQUIDSOAP_UBUNTU"
+          sudo apt-get install -y /tmp/liquidsoap.deb
+          liquidsoap --version
+
+      # Os testes conferem os scripts do motor e da gravação com o Liquidsoap
+      # de Linux (pega erro de script antes de instalar).
+      - name: Testes
+        working-directory: src-tauri
+        env:
+          RADIO_LIQUIDSOAP: /usr/bin/liquidsoap
+        run: cargo test --lib -- --nocapture
+
+      - name: Gerar instalador
+        run: npx tauri build
+
+      - name: Conferir o .deb
+        env:
+          VERSAO: ${{ inputs.versao }}
+        run: |
+          mkdir -p saida
+          cp src-tauri/target/release/bundle/deb/*.deb "saida/radio-on-air_${VERSAO}_amd64.deb"
+          dpkg-deb --info saida/*.deb
+          dpkg-deb --contents saida/*.deb
+          test "$(dpkg-deb -f saida/*.deb Package)" = "radio-on-air"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-linux
+          path: saida/*.deb
+          if-no-files-found: error
+
+  publicar:
+    needs: instalador
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: instalador-linux
+          path: site/apt
+
+      - name: Liquidsoap do Debian 13
+        run: |
+          curl -fL -o "site/apt/$LIQUIDSOAP_DEBIAN" \
+            "https://github.com/savonet/liquidsoap/releases/download/v$LIQUIDSOAP_VERSAO/$LIQUIDSOAP_DEBIAN"
+
+      # A chave privada fica guardada em Settings → Secrets → APT_CHAVE_PRIVADA.
+      # O computador da rádio só aceita atualização assinada por ela.
+      - name: Montar e assinar o repositório apt
+        env:
+          CHAVE: ${{ secrets.APT_CHAVE_PRIVADA }}
+        run: |
+          if [ -z "$CHAVE" ]; then
+            echo "::error::Falta o segredo APT_CHAVE_PRIVADA (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends apt-utils
+          export GNUPGHOME="$(mktemp -d)"
+          echo "$CHAVE" | gpg --batch --import
+          cd site/apt
+          apt-ftparchive packages . > Packages
+          gzip -9 -k Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin="Radio On Air" \
+            -o APT::FTPArchive::Release::Label="Radio On Air" \
+            -o APT::FTPArchive::Release::Description="Radio On Air para Debian 13" \
+            release . > Release
+          gpg --batch --yes --clearsign -o InRelease Release
+          gpg --batch --yes --armor --detach-sign -o Release.gpg Release
+          cd ..
+          cp ../src-tauri/linux/radio-on-air.asc radio-on-air.asc
+          cp ../linux/instalar.sh instalar.sh
+          # Confere que a assinatura bate com a chave que vai dentro do programa.
+          chaveiro="$(mktemp -d)/publica.gpg"
+          gpg --batch --dearmor -o "$chaveiro" radio-on-air.asc
+          gpgv --keyring "$chaveiro" apt/InRelease
+          cat apt/Packages
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - uses: actions/deploy-pages@v4
+        id: deploy
+
+      - name: Marcar a versão no histórico (tag)
+        env:
+          VERSAO: ${{ inputs.versao }}
+        run: |
+          git tag "v$VERSAO"
+          git push origin "v$VERSAO"

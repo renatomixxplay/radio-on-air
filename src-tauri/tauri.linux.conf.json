@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": [
+      "deb"
+    ],
+    "category": "Music",
+    "shortDescription": "Automação de rádio para rádios comunitárias",
+    "linux": {
+      "deb": {
+        "section": "sound",
+        "depends": [
+          "liquidsoap (>= 2.4.6)",
+          "pulseaudio-utils",
+          "pipewire-pulse | pulseaudio"
+        ],
+        "files": {
+          "/etc/apt/sources.list.d/radio-on-air.sources": "linux/radio-on-air.sources",
+          "/usr/share/keyrings/radio-on-air.asc": "linux/radio-on-air.asc",
+          "/etc/sysctl.d/60-radio-on-air.conf": "linux/60-radio-on-air.conf"
+        },
+        "postInstallScript": "linux/postinst.sh"
+      }
+    }
+  }
+}

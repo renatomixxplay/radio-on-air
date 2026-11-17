@@ -29,8 +29,8 @@ Software de automação de rádio (rádio DJ) para Linux, open source, feito par
 | Motor de áudio | **Liquidsoap 2.4** (roda escondido) | Feito para rádio: ducking, Icecast, gravação, 24h estável |
 | Dados | Arquivos de texto/JSON | Fácil de ler, editar e fazer backup |
 
-- ✅ Alvo: Linux (Ubuntu/Debian) — `.deb` e AppImage.
-- 💡 Possivelmente **Windows** no futuro (`.exe`/`.msi`; o Liquidsoap tem versão Windows).
+- ✅ Alvo: **Debian 13** (amd64) — instalador `.deb` gerado pelo GitHub (Actions → "Instalador Linux"), com o Liquidsoap 2.4.6 oficial junto. Atualizações por um repositório apt próprio (GitHub Pages): `apt upgrade` traz a versão nova.
+- ⏸️ **Windows** deixado de lado (o instalador `.exe` continua no GitHub, mas não é mais o alvo).
 - ✅ Desenvolvimento no **macOS** (Intel): Liquidsoap compilado isolado em `~/.opam` (sem Homebrew mexer no sistema).
 - ✅ O motor de áudio **liga sozinho ao abrir o programa**, em segundo plano (no Mac leva ~4 s).
 - ✅ **Motor que se religa sozinho:** se o motor cair (placa USB solta, driver, arquivo estragado, antivírus…), o aviso vermelho mostra o motivo com "religando…" e em **3 s** ele volta. Se a rádio estava no ar, continua no ar com a **próxima** da fila (a que tocava não volta, porque pode ter sido ela que derrubou o motor); link volta a conectar e agendados pendentes seguem. Se o motor não conseguir ligar com a rádio no ar, tenta de novo **a cada 10 s** sem tirar do ar. Estava pausada: volta parada. Testado no Mac derrubando o motor duas vezes seguidas.
@@ -133,7 +133,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 - `indice.txt` para abrir na hora; atualização **automática** quando entra/sai/renomeia música; botão **Atualizar** se der erro. **Ao abrir**, depois de carregar o `indice.txt`, relê a pasta inteira procurando mudanças (só os nomes, ~1–2 s) e atualiza o índice se algo mudou — no Google Drive o Windows nem sempre avisa. A rádio espera essa procura para começar a tocar, no máximo **15 s**.
 - Pasta de **lista** que o índice ainda não conhece (pasta nova) é lida **direto do disco**: a lista nunca cai no acervo todo por isso.
 - Duração lida do **cabeçalho** do arquivo só quando ele entra na fila (sem decodificar o áudio).
-- ❓ Linux com muitas subpastas pode precisar aumentar `fs.inotify.max_user_watches` na instalação.
+- ✅ Linux com muitas subpastas: o instalador aumenta `fs.inotify.max_user_watches`.
 
 ## 5. Fila ✅
 
@@ -196,13 +196,13 @@ Medido no Mac (versão de desenvolvimento), tocando: programa ~30 MB, tela ~55 M
 1. ✅ **Tocando** — acervo, busca, fila, Tocando agora, cartucheira, pré-escuta.
 2. ✅ **Agendamentos** — listas, comerciais, ducking que detecta fala, hora certa, validade, rodízio. Mais as abas Pastas, Cartucheira e Configurações (senha, tocar ao abrir).
 3. **Saídas** — placa da pré-escuta, transmissão Icecast, gravação.
-4. **Acabamento** — instalador `.deb`/AppImage (gerado pelo GitHub), teste num Linux de verdade, medir leveza.
+4. **Acabamento** — ✅ instalador `.deb` + atualizações pelo apt (gerado pelo GitHub); teste num Debian 13 de verdade (inclusive duas placas, uma M-Audio USB), medir leveza.
 
 ## 11. Pendências e decisões em aberto
 
 - ❓ Comercial que dispara fora do ar: descartar (atual) ou guardar?
 - ❓ Sugestões 💡 da fila (repetição, crossfade) e do histórico.
-- ❓ Limite do inotify no Linux com muitas subpastas.
+- ✅ Limite do inotify no Linux: o instalador sobe para 524288 pastas vigiadas (`/etc/sysctl.d/60-radio-on-air.conf`).
 
 ## 12. O que testar (🧪)
 
