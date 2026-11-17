@@ -68,6 +68,13 @@ pub fn caminho_gravacao(pasta: &Path) -> String {
     pasta.join("%d-%m-%Y").join("%H-%M.mp3").to_string_lossy().into_owned()
 }
 
+/// Reserva de ~1 s entre a placa e cada saída. Cada `buffer` tem o seu próprio relógio:
+/// se a saída atrasar (internet engasgou, computador deu uma travada), a placa continua
+/// sendo lida e o áudio espera aqui. Sem isso a leitura da placa parava junto e, no
+/// Windows, o PortAudio derrubava tudo com "Input overflowed".
+/// Gravação e transmissão têm reservas separadas: queda de internet não afeta a gravação.
+const RESERVA: &str = "mksafe(buffer(buffer=1., max=10., entrada))";
+
 fn gravacao(g: &Gravacao) -> String {
     let Some(pasta) = g.pasta.as_deref().filter(|_| g.ligada) else { return String::new() };
     // Pasta com acento (Windows): grava pelo nome curto dela.
@@ -83,7 +90,7 @@ output.file(
   reopen_when=fun () -> {virada},
   reopen_on_error=fun (e) -> begin print("@@GRAV #{{e}}") 10. end,
   {codificador},
-  {{time.string({caminho})}}, mean(entrada))
+  {{time.string({caminho})}}, mean({RESERVA}))
 "#,
         codificador = mp3(false, g.bitrate, 22050),
         caminho = texto(&caminho_gravacao(pasta)),
@@ -94,7 +101,7 @@ fn transmissao(t: &Transmissao, nome_radio: &str) -> String {
     if !t.ligada {
         return String::new();
     }
-    let fonte = if t.estereo { "entrada" } else { "mean(entrada)" };
+    let fonte = if t.estereo { RESERVA.to_string() } else { format!("mean({RESERVA})") };
     format!(
         r#"
 # Transmissão: Icecast em MP3. Se cair, tenta de novo a cada 5 s.
@@ -125,7 +132,7 @@ settings.log.file.set(true)
 settings.log.file.append.set(false)
 settings.log.file.path.set({log})
 
-entrada = mksafe({entrada})
+entrada = {entrada}
 {gravacao}
 {transmissao}
 "#,
