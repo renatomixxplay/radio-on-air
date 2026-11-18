@@ -191,7 +191,10 @@ jobs:
       - uses: actions/deploy-pages@v4
         id: deploy
 
+      # A versão já está publicada: se a etiqueta falhar (por exemplo, o arquivo
+      # do workflow mudou no main durante o build), só avisa, não derruba.
       - name: Marcar a versão no histórico (tag)
+        continue-on-error: true
         env:
           VERSAO: ${{ inputs.versao }}
         run: |
