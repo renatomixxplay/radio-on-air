@@ -1,6 +1,6 @@
 <script lang="ts">
   // Painel "Pastas" da tela No ar: as pastas configuradas na aba Pastas.
-  import { api, type Pasta, type Previa } from "./api";
+  import { api, ehLink, type Pasta, type Previa } from "./api";
   import Icone from "./Icone.svelte";
 
   let {
@@ -63,7 +63,11 @@
           onclick={(e) => pular(e, a.caminho)}
           role="listitem"
         >
+          {#if ehLink(a.caminho)}
+            <span class="tag link icone-link" title="Link ao vivo"><Icone nome="aovivo" tamanho={16} /></span>
+          {/if}
           <span class="reticencias" style="flex:1">{a.nome}</span>
+          {#if !ehLink(a.caminho)}
           <button
             class="acao-linha ouvir"
             class:ouvindo={previa?.caminho === a.caminho}
@@ -76,24 +80,30 @@
           >
             <Icone nome={previa?.caminho === a.caminho ? "stop" : "fone"} tamanho={18} />
           </button>
+          {/if}
           {#if previa?.caminho === a.caminho}
             <span class="mini" style:width="{previa.duracao ? Math.min(100, (previaDecorrido / previa.duracao) * 100) : 0}%"></span>
           {/if}
           <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={(e) => {
               e.stopPropagation();
-              api.filaAdicionar(a.caminho, "programa");
+              api.filaAdicionar(a.caminho, ehLink(a.caminho) ? "link" : "programa");
             }}>
             <Icone nome="plus" tamanho={18} />
           </button>
         </div>
       {:else}
-        <div class="vazio">Pasta sem arquivos de áudio</div>
+        <div class="vazio">Pasta sem arquivos de áudio ou links</div>
       {/each}
     </div>
   {/if}
 </section>
 
 <style>
+  .icone-link {
+    display: inline-flex;
+    padding: 3px 5px;
+    margin-right: 8px;
+  }
   .ouvindo-linha {
     cursor: pointer;
     background: #172033;

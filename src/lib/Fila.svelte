@@ -10,6 +10,7 @@
     programa: { nome: "Programa", icone: "microphone" },
     comercial: { nome: "Comercial", icone: "megafone" },
     hora_certa: { nome: "Hora certa", icone: "relogio" },
+    link: { nome: "Link ao vivo", icone: "aovivo" },
   } as const;
 
   const total = $derived(fila.reduce((s, i) => s + (i.duracao ?? 0), 0));

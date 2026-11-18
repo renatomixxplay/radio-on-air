@@ -182,6 +182,10 @@ select:focus {
   background: var(--tag-programa-bg);
   color: var(--tag-programa);
 }
+.tag.link {
+  background: #4a1f24;
+  color: #ff9b9b;
+}
 
 /* Números (relógio, tempos, durações): fonte do projeto, com algarismos de mesma
    largura para não "pular" enquanto contam. */

@@ -156,6 +156,7 @@
           repetirAuto={r.repetir_auto}
           posDucking={r.pos_ducking}
           link={r.link}
+          linkDaFila={r.link_da_fila}
         />
         <Cartucheira slots={r.cartucheira} />
       </div>

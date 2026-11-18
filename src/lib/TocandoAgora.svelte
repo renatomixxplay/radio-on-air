@@ -15,6 +15,7 @@
     posDucking,
     proximo,
     link,
+    linkDaFila,
   }: {
     item: Item | null;
     decorrido: number;
@@ -30,6 +31,8 @@
     proximo: Retrato["proximo_agendamento"];
     /** Endereço do link ao vivo no ar. */
     link: string | null;
+    /** O link no ar veio da fila: o Passar tira do ar. */
+    linkDaFila: boolean;
   } = $props();
 
   const duracao = $derived(item?.duracao ?? null);
@@ -122,9 +125,9 @@
       </button>
       <button
         onclick={api.proxima}
-        title={travado || link ? avisoTravado : "Passar para a próxima"}
+        title={travado || (link && !linkDaFila) ? avisoTravado : link ? "Tirar o link do ar" : "Passar para a próxima"}
         aria-label="Passar"
-        disabled={!noAr || travado || !!link}
+        disabled={!noAr || travado || (!!link && !linkDaFila)}
       >
         <Icone nome="skip" tamanho={20} />
       </button>

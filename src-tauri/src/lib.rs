@@ -51,6 +51,8 @@ pub enum Tipo {
     Vinheta,
     Comercial,
     HoraCerta,
+    /// Link de rádio online (arquivo `.m3u`/`.pls`) posto na fila.
+    Link,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -171,6 +173,8 @@ struct LinkAtivo {
     ligado: bool,
     /// Ajuste de volume do link, em dB.
     ganho_db: f64,
+    /// Veio da fila (arquivo de link): o Próximo tira do ar. O agendado não.
+    da_fila: bool,
 }
 
 type Compartilhado = Arc<Mutex<Estado>>;
@@ -248,6 +252,8 @@ struct Retrato {
     proximo_agendamento: Option<agenda::ProximoDto>,
     /// Endereço do link ao vivo no ar.
     link: Option<String>,
+    /// O link no ar veio da fila: o Próximo pode tirar.
+    link_da_fila: bool,
 }
 
 impl Estado {
@@ -322,6 +328,7 @@ impl Estado {
             pos_ducking: self.trocando_pos_ducking,
             proximo_agendamento: agenda::proximo(&self.agenda),
             link: self.link.as_ref().filter(|l| l.ligado).map(|l| l.url.clone()),
+            link_da_fila: self.link.as_ref().is_some_and(|l| l.ligado && l.da_fila),
             previa: self.previa.as_ref().map(|p| PreviaDto {
                 caminho: p.caminho.clone(),
                 titulo: p.titulo.clone(),
@@ -409,6 +416,14 @@ impl Estado {
         if self.entregar_com_vinheta() {
             return;
         }
+        if self.pendentes.is_empty() && self.link.is_none() && self.fila.first().is_some_and(|i| i.tipo == Tipo::Link) {
+            // Link da fila: entra quando não há nada tocando (o relógio cuida do
+            // fim da faixa atual); não vai ao motor como arquivo.
+            if self.tocando.is_none() {
+                self.iniciar_link_da_fila();
+            }
+            return;
+        }
         let Some(motor) = &self.motor else { return };
         let prox = match self.pendentes.first_mut() {
             Some(p) => Some(p),
@@ -422,6 +437,22 @@ impl Estado {
                 Err(e) => self.erro_motor = Some(e),
             }
         }
+    }
+
+    /// Tira da fila o link (arquivo `.m3u`/`.pls`) e põe no ar.
+    fn iniciar_link_da_fila(&mut self) {
+        let item = self.fila.remove(0);
+        let caminho = Path::new(&item.caminho);
+        let Some(url) = biblioteca::url_do_link(caminho) else {
+            registro::anotar(format!("link da fila sem endereço, pulado: {}", registro::nome(&item.caminho)));
+            self.enviar_proximo();
+            return;
+        };
+        let nome = caminho.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let ganho_db = biblioteca::volume_do_nome(&nome);
+        registro::anotar(format!("link da fila: entra {} ({url}, {ganho_db:+} dB)", registro::nome(&item.caminho)));
+        self.link = Some(LinkAtivo { url, ligado: false, ganho_db, da_fila: true });
+        self.ligar_link_se_pronto();
     }
 
     /// Liga o link quando a abertura acabou (ou não havia abertura).
@@ -794,6 +825,19 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
             emitir(&app, &e);
             continue;
         }
+        // Link da fila na vez: a faixa atual acabou (ou não há nada tocando).
+        let link_na_vez = e.link.is_none()
+            && e.pendentes.is_empty()
+            && !e.tem_entregue()
+            && e.fila.first().is_some_and(|i| i.tipo == Tipo::Link)
+            && falta.map_or(e.tocando.is_none(), |f| f <= -0.3);
+        if link_na_vez {
+            registro::anotar("relógio: faixa acabou → entra o link da fila");
+            e.tocando = None;
+            e.enviar_proximo();
+            emitir(&app, &e);
+            continue;
+        }
         if !falta.is_some_and(|f| f <= ANTECEDENCIA) {
             continue;
         }
@@ -1038,7 +1082,7 @@ fn iniciar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Ag
     if let Some(abertura) = ag.abertura.as_deref().and_then(|p| agenda::um_da_pasta(p, &mut e.rodizio, &dir)) {
         agendar_em_sequencia(app, estado, e, vec![abertura], Tipo::Vinheta);
     }
-    e.link = Some(LinkAtivo { url, ligado: false, ganho_db: ag.volume_db });
+    e.link = Some(LinkAtivo { url, ligado: false, ganho_db: ag.volume_db, da_fila: false });
     if e.tocando.is_some() {
         // Quando o fade acabar, o motor fica sem nada e o evento de silêncio
         // entrega a abertura ou liga o link.
@@ -1488,7 +1532,7 @@ fn arquivos_da_pasta(caminho: String) -> Vec<Arquivo> {
         .map(|rd| {
             rd.filter_map(Result::ok)
                 .map(|d| d.path())
-                .filter(|p| p.is_file() && biblioteca::eh_audio(p))
+                .filter(|p| p.is_file() && (biblioteca::eh_audio(p) || biblioteca::eh_link(p)))
                 .map(|p| Arquivo {
                     nome: p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
                     caminho: p.to_string_lossy().into_owned(),
@@ -1515,6 +1559,10 @@ fn fila_adicionar(
     }
     let (artista, titulo) = match tipo {
         Tipo::Musica => biblioteca::artista_e_musica(Path::new(&caminho)),
+        Tipo::Link => {
+            let nome = Path::new(&caminho).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            ("Link ao vivo".to_string(), biblioteca::nome_sem_volume(&nome))
+        }
         _ => {
             let p = Path::new(&caminho);
             let pasta = p.parent().and_then(|d| d.file_name()).map(|s| s.to_string_lossy().into_owned());
@@ -1525,7 +1573,9 @@ fn fila_adicionar(
     // Não deixa entrar na frente de quem já foi entregue ao motor.
     let travados = e.fila.iter().take_while(|i| i.travado).count();
     let pos = posicao.unwrap_or(e.fila.len()).clamp(travados, e.fila.len());
-    analisar_em_segundo_plano(&app, &compartilhado, item.id, caminho);
+    if tipo != Tipo::Link {
+        analisar_em_segundo_plano(&app, &compartilhado, item.id, caminho);
+    }
     e.fila.insert(pos, item);
     emitir(&app, &e);
     Ok(())
@@ -1628,8 +1678,14 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
     if !e.no_ar {
         return;
     }
-    // Agendamento não se pula: comercial, hora certa e link tocam até o fim.
-    if e.link.is_some() {
+    // Agendamento não se pula: comercial, hora certa e link agendado tocam
+    // até o fim. O link que veio da fila sai (fade de 3 s e a fila continua).
+    if let Some(l) = &e.link {
+        if l.da_fila && l.ligado {
+            registro::anotar("botão Próximo: tira o link da fila");
+            encerrar_link(&app, &compartilhado, &mut e);
+            emitir(&app, &e);
+        }
         return;
     }
     if e.travado_por_agendamento() {

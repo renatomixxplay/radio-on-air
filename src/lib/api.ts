@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type Tipo = "musica" | "programa" | "vinheta" | "comercial" | "hora_certa";
+export type Tipo = "musica" | "programa" | "vinheta" | "comercial" | "hora_certa" | "link";
+
+/** Arquivo de link de rádio online (.m3u/.pls). */
+export const ehLink = (caminho: string) => /\.(m3u|pls)$/i.test(caminho);
 
 export interface Item {
   id: number;
@@ -54,6 +57,8 @@ export interface Retrato {
   proximo_agendamento: { horario: string; tipo: TipoAgenda; nome: string } | null;
   /** Endereço do link ao vivo no ar. */
   link: string | null;
+  /** O link no ar veio da fila: o Próximo pode tirar. */
+  link_da_fila: boolean;
 }
 
 /** Placas escolhidas (null = padrão do sistema). */

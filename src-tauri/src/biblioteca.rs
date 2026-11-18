@@ -19,6 +19,57 @@ pub fn eh_audio(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Link de rádio online salvo em arquivo (`.m3u` ou `.pls`). Aparece nas
+/// pastas (e vai para a fila), mas não entra no acervo de músicas.
+pub fn eh_link(p: &Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "m3u" | "pls"))
+}
+
+/// Endereço guardado no `.m3u`/`.pls`: a primeira linha com `http(s)://`
+/// (no `.pls`, o valor de `File1=`).
+pub fn url_do_link(p: &Path) -> Option<String> {
+    let bytes = fs::read(p).ok()?;
+    let txt = String::from_utf8_lossy(&bytes);
+    txt.lines().map(str::trim).find_map(|linha| {
+        let valor = match linha.split_once('=') {
+            Some((chave, v)) if chave.trim().to_ascii_lowercase().starts_with("file") => v.trim(),
+            _ => linha,
+        };
+        let minusc = valor.to_ascii_lowercase();
+        (minusc.starts_with("http://") || minusc.starts_with("https://")).then(|| valor.to_string())
+    })
+}
+
+/// Ajuste de volume escrito no nome: `Rádio USP [-6dB]` → -6. Sem ajuste: 0.
+pub fn volume_do_nome(nome: &str) -> f64 {
+    marca_de_volume(nome).map_or(0.0, |(db, _)| db)
+}
+
+/// O nome sem o ajuste de volume: `Rádio USP [-6dB]` → `Rádio USP`.
+pub fn nome_sem_volume(nome: &str) -> String {
+    match marca_de_volume(nome) {
+        Some((_, (ini, fim))) => format!("{}{}", &nome[..ini], &nome[fim..]).split_whitespace().collect::<Vec<_>>().join(" "),
+        None => nome.to_string(),
+    }
+}
+
+/// Acha `[<número> dB]` no nome: o valor e onde ele está.
+fn marca_de_volume(nome: &str) -> Option<(f64, (usize, usize))> {
+    let mut resto = 0;
+    while let Some(ini) = nome[resto..].find('[').map(|i| i + resto) {
+        let fim = nome[ini..].find(']').map(|i| i + ini + 1)?;
+        let dentro: String = nome[ini + 1..fim - 1].chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
+        let numero = dentro.strip_suffix("db").map(|n| n.replace(',', ".").replace('−', "-"));
+        if let Some(db) = numero.and_then(|n| n.parse::<f64>().ok()) {
+            return Some((db, (ini, fim)));
+        }
+        resto = fim;
+    }
+    None
+}
+
 /// Separa `Artista - Música` a partir do nome do arquivo.
 /// Fora do padrão: o nome inteiro vira a música e o artista fica vazio.
 pub fn artista_e_musica(p: &Path) -> (String, String) {
@@ -408,6 +459,34 @@ impl Biblioteca {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn volume_escrito_no_nome_do_link() {
+        assert_eq!(volume_do_nome("Rádio USP [-6dB]"), -6.0);
+        assert_eq!(volume_do_nome("Rádio USP [ -4,5 dB ]"), -4.5);
+        assert_eq!(volume_do_nome("Voz do Brasil [+3dB]"), 3.0);
+        assert_eq!(volume_do_nome("Ofertas [12-10-2025]"), 0.0);
+        assert_eq!(volume_do_nome("Rádio USP"), 0.0);
+        assert_eq!(nome_sem_volume("Rádio USP [-6dB]"), "Rádio USP");
+        assert_eq!(nome_sem_volume("Rádio [2025] USP [-6 dB] FM"), "Rádio [2025] USP FM");
+    }
+
+    #[test]
+    fn le_endereco_do_m3u_e_do_pls() {
+        let dir = std::env::temp_dir().join(format!("radio-link-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let m3u = dir.join("USP.m3u");
+        fs::write(&m3u, "#EXTM3U\n#EXTINF:-1,Rádio USP\nhttps://flow.emm.usp.br:8008/radiousp-128.mp3\n").unwrap();
+        let pls = dir.join("Outra.pls");
+        fs::write(&pls, "[playlist]\nNumberOfEntries=1\nFile1=http://exemplo.com:8000/ao-vivo\nTitle1=Outra\n").unwrap();
+        let vazio = dir.join("Vazio.m3u");
+        fs::write(&vazio, "#EXTM3U\n").unwrap();
+        assert!(eh_link(&m3u) && eh_link(&pls) && !eh_link(Path::new("a.mp3")));
+        assert_eq!(url_do_link(&m3u).as_deref(), Some("https://flow.emm.usp.br:8008/radiousp-128.mp3"));
+        assert_eq!(url_do_link(&pls).as_deref(), Some("http://exemplo.com:8000/ao-vivo"));
+        assert_eq!(url_do_link(&vazio), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn separa_artista_e_musica() {
