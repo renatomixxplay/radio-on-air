@@ -51,12 +51,38 @@ jobs:
           sed -i "0,/^version = \".*\"/s//version = \"$VERSAO\"/" src-tauri/Cargo.toml
           grep '"version"' src-tauri/tauri.conf.json
 
-      - name: Bibliotecas para compilar
+      # Pacotes do sistema (bibliotecas da tela + Liquidsoap e o que ele usa)
+      # ficam guardados entre uma execução e outra: com a caixa guardada, o apt
+      # instala sem baixar nada dos servidores do Ubuntu (que às vezes ficam
+      # lentos: já levou 16 min). A caixa muda quando este arquivo muda.
+      - name: Pacotes guardados (cache)
+        id: cache-apt
+        uses: actions/cache@v4
+        with:
+          path: ~/cache-apt
+          key: apt-ubuntu-24.04-${{ hashFiles('.github/workflows/linux.yml') }}
+
+      - name: Bibliotecas para compilar e Liquidsoap (para os testes)
+        env:
+          GUARDADO: ${{ steps.cache-apt.outputs.cache-hit }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
-            libayatana-appindicator3-dev librsvg2-dev
+          curl -fL -o /tmp/liquidsoap.deb \
+            "https://github.com/savonet/liquidsoap/releases/download/v$LIQUIDSOAP_VERSAO/$LIQUIDSOAP_UBUNTU"
+          C="$HOME/cache-apt"
+          mkdir -p "$C/lists/partial" "$C/archives/partial"
+          APT="sudo apt-get -o Dir::State::lists=$C/lists -o Dir::Cache::archives=$C/archives -o APT::Keep-Downloaded-Packages=true"
+          PACOTES="libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev /tmp/liquidsoap.deb"
+          if [ "$GUARDADO" != "true" ]; then
+            $APT update
+          fi
+          # Se a caixa estiver velha (pacote que sumiu do Ubuntu), atualiza e baixa.
+          $APT install -y --no-install-recommends $PACOTES \
+            || { $APT update && $APT install -y --no-install-recommends $PACOTES; }
+          liquidsoap --version
+          # Deixa a caixa legível para ser guardada no fim.
+          sudo rm -rf "$C/lists/partial" "$C/archives/partial" "$C/lists/lock" "$C/archives/lock"
+          sudo chown -R "$(id -u):$(id -g)" "$C"
+          du -sh "$C"
 
       - uses: actions/setup-node@v4
         with:
@@ -72,13 +98,6 @@ jobs:
 
       - name: Dependências do programa
         run: npm ci
-
-      - name: Liquidsoap (para os testes)
-        run: |
-          curl -fL -o /tmp/liquidsoap.deb \
-            "https://github.com/savonet/liquidsoap/releases/download/v$LIQUIDSOAP_VERSAO/$LIQUIDSOAP_UBUNTU"
-          sudo apt-get install -y /tmp/liquidsoap.deb
-          liquidsoap --version
 
       # Os testes conferem os scripts do motor e da gravação com o Liquidsoap
       # de Linux (pega erro de script antes de instalar).
@@ -140,8 +159,8 @@ jobs:
             echo "::error::Falta o segredo APT_CHAVE_PRIVADA (Settings → Secrets and variables → Actions)."
             exit 1
           fi
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends apt-utils
+          # apt-ftparchive já vem na máquina do GitHub; só instala se faltar.
+          command -v apt-ftparchive >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends apt-utils; }
           export GNUPGHOME="$(mktemp -d)"
           echo "$CHAVE" | gpg --batch --import
           cd site/apt
