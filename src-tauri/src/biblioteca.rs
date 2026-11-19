@@ -350,6 +350,22 @@ impl Biblioteca {
         Some(FaixaDto { caminho: carta.to_string_lossy().into_owned(), artista, musica })
     }
 
+    /// Uma música de cada pasta, revezando na ordem: `vez` diz de qual sai a
+    /// próxima e anda para a seguinte. Cada pasta tem o seu baralho (nada
+    /// repete antes de tocar todas daquela pasta). Pasta vazia ou sumida é
+    /// pulada; nenhuma serve: `None`.
+    pub fn proxima_revezando(&mut self, pastas: &[String], vez: &mut usize) -> Option<FaixaDto> {
+        let n = pastas.len();
+        for passo in 0..n {
+            let i = (*vez + passo) % n;
+            if let Some(f) = self.proxima_em(Some(Path::new(&pastas[i]))) {
+                *vez = (i + 1) % n;
+                return Some(f);
+            }
+        }
+        None
+    }
+
     fn tirar(&self, pasta: &Path, baralho: &mut Baralho) -> Option<PathBuf> {
         let mut embaralhou = false;
         loop {
@@ -664,6 +680,28 @@ mod testes {
         assert_eq!(b.total(), 2);
         assert!(!b.trocar_faixas(Biblioteca::varrer(raiz.clone())), "sem mudança não troca");
         fs::remove_dir_all(&raiz).unwrap();
+    }
+
+    /// Lista com várias pastas: uma de cada, na ordem; pasta vazia é pulada;
+    /// dentro de cada pasta nada repete antes de tocar todas.
+    #[test]
+    fn lista_reveza_as_pastas_sem_repetir() {
+        let mut b = acervo(&["Pop/A - 1.mp3", "Pop/A - 2.mp3", "Sertanejo/B - 1.mp3", "Sertanejo/B - 2.mp3", "Sertanejo/B - 3.mp3"]);
+        let raiz = Path::new("/m");
+        let pastas: Vec<String> = ["Sertanejo", "Vazia", "Pop"].iter().map(|p| raiz.join(p).to_string_lossy().into_owned()).collect();
+        let mut vez = 0;
+        let mut saiu = vec![];
+        for _ in 0..4 {
+            saiu.push(b.proxima_revezando(&pastas, &mut vez).unwrap().caminho);
+        }
+        let de = |c: &String, p: &str| Path::new(c).starts_with(raiz.join(p));
+        assert!(de(&saiu[0], "Sertanejo") && de(&saiu[1], "Pop") && de(&saiu[2], "Sertanejo") && de(&saiu[3], "Pop"), "{saiu:?}");
+        assert_ne!(saiu[0], saiu[2]);
+        assert_ne!(saiu[1], saiu[3]);
+        // Nenhuma pasta serve: None (a fila cai no acervo todo).
+        let nada = vec![raiz.join("Vazia").to_string_lossy().into_owned()];
+        assert!(b.proxima_revezando(&nada, &mut 0).is_none());
+        assert!(b.proxima_revezando(&[], &mut 0).is_none());
     }
 
     /// Baralho: toca todas da pasta antes de repetir, e a última de uma rodada

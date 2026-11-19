@@ -137,7 +137,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 
 ## 5. Fila ✅
 
-- Até **10 itens**; o automático garante o **mínimo de 3** (quando cai para 3, puxa mais 1).
+- Até **25 itens**; o automático garante o **mínimo de 3** (quando cai para 3, puxa mais 1).
 - O automático puxa da **lista de músicas ativa** (agendamento tipo Lista) ou do acervo inteiro, em **baralho**: a pasta é embaralhada e as músicas saem na ordem do baralho; só quando **todas** tocaram ela é embaralhada de novo (a última da rodada não abre a seguinte). Ou seja, **nenhuma música repete antes de todas as outras da pasta**. Um baralho por pasta, só na memória (ao abrir o programa, embaralha de novo). Música apagada depois de embaralhar é pulada; música nova entra na rodada seguinte. Música posta na fila **à mão** não segue a regra. Pasta da lista vazia ou apagada: baralho do acervo todo. Pasta fora do acervo: lida direto do disco.
 - No topo da fila: **Fila · Playlist _nome da pasta_** (a lista valendo agora).
 - 💡 Não repetir o mesmo artista por X minutos.

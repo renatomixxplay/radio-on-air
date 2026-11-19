@@ -306,9 +306,10 @@ pub fn do_minuto(v: &[Agendamento], data: NaiveDate, hora: u32, minuto: u32) -> 
     vencem
 }
 
-/// A lista de músicas que deveria estar valendo agora: a última que já passou
-/// do horário (hoje ou, se ainda não teve hoje, nos dias anteriores).
-pub fn lista_vigente(v: &[Agendamento]) -> Option<String> {
+/// Pastas da lista de músicas que deveria estar valendo agora: a última que já
+/// passou do horário (hoje ou, se ainda não teve hoje, nos dias anteriores).
+/// Vazio: nenhuma lista.
+pub fn lista_vigente(v: &[Agendamento]) -> Vec<String> {
     let agora = Local::now();
     let hoje = agora.date_naive();
     let minuto_agora = agora.hour() * 60 + agora.minute();
@@ -321,10 +322,10 @@ pub fn lista_vigente(v: &[Agendamento]) -> Option<String> {
             .filter(|(m, _)| volta > 0 || *m <= minuto_agora)
             .max_by_key(|(m, _)| *m);
         if let Some((_, a)) = melhor {
-            return Some(a.pastas[0].caminho.clone());
+            return a.pastas.iter().map(|p| p.caminho.clone()).collect();
         }
     }
-    None
+    vec![]
 }
 
 /// Próximo agendamento que vai executar (listas de músicas não entram).

@@ -62,7 +62,7 @@
     <span class="titulo reticencias"
       >Fila{#if lista}<span class="ponto">·</span><span class="lista-ativa" title="Lista de músicas valendo agora">Playlist {lista}</span>{/if}</span
     >
-    <span class="info mono">{fila.length}/10 · {tempo(total)}</span>
+    <span class="info mono">{fila.length}/25 · {tempo(total)}</span>
   </div>
   <div
     class="lista"

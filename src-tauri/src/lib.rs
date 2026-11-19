@@ -20,8 +20,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-/// A fila cabe até 10 itens.
-const FILA_MAXIMO: usize = 10;
+/// A fila cabe até 25 itens.
+const FILA_MAXIMO: usize = 25;
 /// O automático garante este mínimo: quando a fila chega a 3, puxa mais uma.
 const FILA_MINIMO: usize = 3;
 /// Quantos segundos antes do fim a próxima faixa é entregue ao motor.
@@ -130,8 +130,11 @@ pub struct Estado {
     previa: Option<Previa>,
     agenda: Vec<Agendamento>,
     rodizio: Rodizio,
-    /// Pasta da lista de músicas que vale agora (a fila puxa dela).
-    lista_ativa: Option<String>,
+    /// Pastas da lista de músicas que vale agora (a fila puxa delas, uma de
+    /// cada, nesta ordem). Vazio: acervo todo.
+    lista_ativa: Vec<String>,
+    /// De qual pasta da lista sai a próxima música.
+    lista_vez: usize,
     /// Comercial com ducking tocando por cima agora.
     por_cima: Option<String>,
     /// Comerciais e hora certa esperando a música acabar. Não aparecem na fila
@@ -312,8 +315,12 @@ impl Estado {
             erro_motor: self.erro_motor.clone(),
             repetir: self.repetir,
             ducking: self.ducking,
-            lista_ativa: self.lista_ativa.as_ref().map(|p| {
-                Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            lista_ativa: (!self.lista_ativa.is_empty()).then(|| {
+                self.lista_ativa
+                    .iter()
+                    .map(|p| Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
+                    .collect::<Vec<_>>()
+                    .join(" + ")
             }),
             por_cima: self.por_cima.clone(),
             // A vinheta entre músicas não é "agendamento esperando".
@@ -500,13 +507,24 @@ fn analisar_em_segundo_plano(app: &AppHandle, estado: &Compartilhado, id: u64, c
     });
 }
 
+/// Relê a lista que vale agora; se mudou, o revezamento volta à primeira pasta.
+fn atualizar_lista(e: &mut Estado) {
+    let nova = agenda::lista_vigente(&e.agenda);
+    if nova != e.lista_ativa {
+        e.lista_ativa = nova;
+        e.lista_vez = 0;
+    }
+}
+
 /// Mantém o mínimo da fila puxando músicas aleatórias do acervo.
 fn completar_fila(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     while e.fila.len() <= FILA_MINIMO && e.fila.len() < FILA_MAXIMO {
-        // Baralho da pasta da lista (sem repetir até tocar todas); pasta vazia
-        // ou sem lista: baralho do acervo todo.
-        let lista = e.lista_ativa.clone();
-        let da_lista = lista.and_then(|p| e.bib.proxima_em(Some(Path::new(&p))));
+        // Uma de cada pasta da lista, na ordem (sem repetir dentro de cada uma).
+        // Nenhuma serve ou sem lista: baralho do acervo todo.
+        let pastas = e.lista_ativa.clone();
+        let mut vez = e.lista_vez;
+        let da_lista = e.bib.proxima_revezando(&pastas, &mut vez);
+        e.lista_vez = vez;
         let Some(f) = da_lista.or_else(|| e.bib.proxima_em(None)) else { break };
         let item = e.novo_item(f.caminho, f.artista, f.musica, Tipo::Musica);
         analisar_em_segundo_plano(app, estado, item.id, item.caminho.clone());
@@ -937,8 +955,9 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
     ));
     match ag.tipo {
         TipoAgenda::Lista => {
-            if let Some(p) = ag.pastas.first() {
-                e.lista_ativa = Some(p.caminho.clone());
+            if !ag.pastas.is_empty() {
+                e.lista_ativa = ag.pastas.iter().map(|p| p.caminho.clone()).collect();
+                e.lista_vez = 0;
             }
             // Limpa a fila e põe músicas novas da pasta. Comercial e hora certa
             // tocando não levam fade (agendamento não se corta).
@@ -1196,7 +1215,7 @@ fn agendamento_salvar(app: AppHandle, estado: State<Compartilhado>, mut ag: Agen
     }
     agenda::ordenar(&mut e.agenda);
     agenda::salvar(&e.dir, &e.agenda).map_err(|err| err.to_string())?;
-    e.lista_ativa = agenda::lista_vigente(&e.agenda);
+    atualizar_lista(&mut e);
     emitir(&app, &e);
     Ok(e.agenda.clone())
 }
@@ -1206,7 +1225,7 @@ fn agendamento_remover(app: AppHandle, estado: State<Compartilhado>, id: u64) ->
     let mut e = travar(&estado);
     e.agenda.retain(|a| a.id != id);
     agenda::salvar(&e.dir, &e.agenda).map_err(|err| err.to_string())?;
-    e.lista_ativa = agenda::lista_vigente(&e.agenda);
+    atualizar_lista(&mut e);
     emitir(&app, &e);
     Ok(e.agenda.clone())
 }
@@ -1909,6 +1928,7 @@ pub fn run() {
                 agenda,
                 rodizio,
                 lista_ativa,
+                lista_vez: 0,
                 por_cima: None,
                 pendentes: vec![],
                 repetir_auto: false,

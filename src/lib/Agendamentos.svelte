@@ -14,7 +14,7 @@
     { tipo: "link", nome: "Link", icone: "aovivo" },
   ];
   const DICA: Record<TipoAgenda, string> = {
-    lista: "Limpa a fila e põe músicas novas desta pasta. Vale até a próxima lista. Também encerra um link.",
+    lista: "Limpa a fila e põe músicas novas das pastas, uma de cada, nesta ordem, sem repetir. Vale até a próxima lista. Também encerra um link.",
     comercial: "Espera a música acabar e toca as pastas, nesta ordem.",
     ducking: "Entra por cima da música, que abaixa enquanto tem voz.",
     hora_certa: "Só existe uma. Na hora cheia (ou a cada 30 min), espera a música acabar e toca a abertura, a hora (HRS08 + MIN10) e o comercial. Todos opcionais.",
@@ -38,7 +38,9 @@
   let arrastando = $state<number | null>(null);
 
   const visiveis = $derived(filtro < 0 ? lista : lista.filter((a) => a.dias[filtro]));
-  const variasPastas = $derived(edicao?.tipo === "comercial" || edicao?.tipo === "ducking");
+  const variasPastas = $derived(edicao?.tipo === "comercial" || edicao?.tipo === "ducking" || edicao?.tipo === "lista");
+  // "Todos / Só um" só faz sentido para comercial e ducking.
+  const modoPorPasta = $derived(edicao?.tipo === "comercial" || edicao?.tipo === "ducking");
 
   onMount(async () => {
     lista = await api.agendamentos();
@@ -149,8 +151,8 @@
   function trocarTipo(t: TipoAgenda) {
     if (!edicao) return;
     edicao.tipo = t;
-    // Lista e hora certa usam uma pasta só.
-    if (t === "lista" || t === "hora_certa") edicao.pastas = edicao.pastas.slice(0, 1);
+    // Hora certa usa uma pasta só.
+    if (t === "hora_certa") edicao.pastas = edicao.pastas.slice(0, 1);
     if (t === "hora_certa" && !INTERVALOS.some((i) => i.minutos === edicao!.intervalo)) edicao.intervalo = 60;
     if (t === "link") edicao.pastas = [];
   }
@@ -325,7 +327,7 @@
           {/if}
         {/each}
       {:else}
-      <div class="campo">{variasPastas ? "Pastas (tocam nesta ordem)" : "Pasta"}</div>
+      <div class="campo">{edicao.tipo === "lista" ? "Pastas (uma música de cada, nesta ordem)" : variasPastas ? "Pastas (tocam nesta ordem)" : "Pasta"}</div>
       {#each edicao.pastas as p, i (p.caminho + i)}
         <div
           class="pasta"
@@ -340,7 +342,7 @@
           {#if variasPastas}<span class="pega"><Icone nome="grip" tamanho={18} /></span>{/if}
           <span class="cor-pasta"><Icone nome="folder" tamanho={18} /></span>
           <span class="reticencias nome" title={p.caminho}>{nomePasta(p.caminho)}</span>
-          {#if variasPastas}
+          {#if modoPorPasta}
             <span class="seg">
               <button class:on={p.modo === "todos"} onclick={() => (p.modo = "todos")}>Todos</button>
               <button class:on={p.modo === "um"} onclick={() => (p.modo = "um")} title="Um arquivo por vez: com data primeiro, depois rodízio">Só um</button>
