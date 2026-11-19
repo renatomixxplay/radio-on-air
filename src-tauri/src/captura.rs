@@ -13,6 +13,10 @@ pub enum EventoCaptura {
     Transmissao(String),
     /// Erro ao gravar.
     Gravacao(String),
+    /// A entrada está chegando só com chiado há 10 s seguidos.
+    Chiado,
+    /// A entrada está limpa há 30 s seguidos (desde que a captura abriu).
+    SinalOk,
     /// O processo terminou (com a última linha de erro).
     Parou(String),
 }
@@ -76,6 +80,39 @@ fn mp3(estereo: bool, kbps: u32, samplerate: u32) -> String {
 pub fn caminho_gravacao(pasta: &Path) -> String {
     pasta.join("%d-%m-%Y").join("%H-%M.mp3").to_string_lossy().into_owned()
 }
+
+/// Vigia do chiado. Placa USB no Linux (PipeWire) às vezes abre "embaralhada" e
+/// manda só chiado alto até ser reaberta (aconteceu com a M-Audio em 19/11/2026).
+/// Compara, a cada segundo, os agudos (acima de 8 kHz) com o som inteiro: no chiado
+/// eles ficam a ~5 dB do total; na música, a 15 dB ou mais (medido em 74 músicas).
+/// Limite: −9 dB, com o som acima de −30 dB. 10 s seguidos assim → `@@CHIADO`;
+/// 30 s seguidos sem isso → `@@SINAL ok` (uma vez).
+const VIGIA: &str = r#"
+def vigia_chiado(s) =
+  total = rms(duration=1., mean(s))
+  agudos = rms(duration=1., filter.iir.butterworth.high(frequency=8000., order=4, total))
+  output.dummy(fallible=true, agudos)
+  seguidos = ref(0)
+  limpos = ref(0)
+  def olhar() =
+    t = total.rms()
+    if t > 0.0316 and agudos.rms() > t * 0.355 then
+      seguidos := seguidos() + 1
+      limpos := 0
+      if seguidos() >= 10 then
+        print("@@CHIADO")
+        seguidos := 0
+      end
+    else
+      seguidos := 0
+      limpos := limpos() + 1
+      if limpos() == 30 then print("@@SINAL ok") end
+    end
+  end
+  thread.run(every=1., olhar)
+end
+vigia_chiado(entrada)
+"#;
 
 /// Reserva de ~1 s entre a placa e cada saída. Cada `buffer` tem o seu próprio relógio:
 /// se a saída atrasar (internet engasgou, computador deu uma travada), a placa continua
@@ -143,6 +180,7 @@ settings.log.file.path.set({log})
 
 placa = {entrada}
 entrada = {canal}
+{VIGIA}
 {gravacao}
 {transmissao}
 "#,
@@ -192,6 +230,10 @@ impl Captura {
             for linha in BufReader::new(stdout).lines().map_while(Result::ok) {
                 if let Some(t) = linha.strip_prefix("@@TX ") {
                     ao_evento(EventoCaptura::Transmissao(t.trim().to_string()));
+                } else if linha.trim() == "@@CHIADO" {
+                    ao_evento(EventoCaptura::Chiado);
+                } else if linha.trim() == "@@SINAL ok" {
+                    ao_evento(EventoCaptura::SinalOk);
                 } else if let Some(t) = linha.strip_prefix("@@GRAV ") {
                     ao_evento(EventoCaptura::Gravacao(t.trim().to_string()));
                 } else {
@@ -260,6 +302,26 @@ mod testes {
             let saida = std::process::Command::new(&exe).arg("--check").arg(&arq).output().unwrap();
             assert!(saida.status.success(), "{c:?}: {}{}", String::from_utf8_lossy(&saida.stdout), String::from_utf8_lossy(&saida.stderr));
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// O vigia avisa com chiado (ruído branco) e fica quieto com música (tom + harmônicos).
+    #[test]
+    fn vigia_pega_chiado_e_nao_pega_musica() {
+        let Some(exe) = crate::motor::localizar() else { return };
+        let dir = std::env::temp_dir().join(format!("radio-vigia-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rodar = |fonte: &str| {
+            let arq = dir.join("vigia.liq");
+            let s = format!(
+                "settings.log.stdout.set(false)\nentrada = {fonte}\n{VIGIA}\nthread.run(delay=13., fun () -> shutdown())\n"
+            );
+            std::fs::write(&arq, s).unwrap();
+            let saida = std::process::Command::new(&exe).arg(&arq).output().unwrap();
+            String::from_utf8_lossy(&saida.stdout).into_owned()
+        };
+        assert!(rodar("amplify(0.5, noise())").contains("@@CHIADO"));
+        assert!(!rodar("add([sine(220.), sine(440.), amplify(0.3, sine(3000.))])").contains("@@CHIADO"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

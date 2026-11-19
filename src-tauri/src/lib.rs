@@ -168,6 +168,10 @@ pub struct Estado {
     /// "desligada", "conectando", "conectado", "caiu" ou "erro …".
     transmissao_estado: String,
     erro_captura: Option<String>,
+    /// A entrada está chegando só com chiado (placa "embaralhada").
+    chiado: bool,
+    /// Quantas vezes a captura já foi reaberta por causa do chiado (máximo 3).
+    tentativas_chiado: u32,
 }
 
 struct LinkAtivo {
@@ -238,6 +242,8 @@ struct Retrato {
     erro_captura: Option<String>,
     /// A gravação está ligada e a captura rodando sem erro.
     gravando: bool,
+    /// A entrada está chegando só com chiado.
+    chiado: bool,
     cartucheira: Vec<Option<CartuchoDto>>,
     motor_ok: bool,
     iniciando_motor: bool,
@@ -299,6 +305,7 @@ impl Estado {
                 && self.erro_captura.is_none()
                 && self.config.gravacao.ligada
                 && self.config.gravacao.pasta.is_some(),
+            chiado: self.chiado,
             cartucheira: self
                 .config
                 .cartucheira
@@ -737,6 +744,8 @@ fn iniciar_captura(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
     let grava = g.ligada && g.pasta.is_some();
     e.transmissao_estado = if t.ligada { "conectando".into() } else { "desligada".into() };
     if !grava && !t.ligada {
+        e.chiado = false;
+        e.tentativas_chiado = 0;
         return;
     }
     let Some(exe) = motor::localizar() else {
@@ -779,6 +788,32 @@ fn ao_evento_captura(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: 
             }
         }
         Ev::Gravacao(erro) => e.erro_captura = Some(format!("Gravação: {erro}")),
+        Ev::Chiado => {
+            e.chiado = true;
+            if e.tentativas_chiado < 3 {
+                e.tentativas_chiado += 1;
+                registro::anotar(format!("captura: chiado na entrada da placa, reabrindo ({}/3)", e.tentativas_chiado));
+                // Reabre fora deste aviso: ele vem da própria captura que vai ser fechada.
+                let (app, estado) = (app.clone(), estado.clone());
+                std::thread::spawn(move || {
+                    let mut e = travar(&estado);
+                    if geracao == e.geracao_captura {
+                        iniciar_captura(&app, &estado, &mut e);
+                        emitir(&app, &e);
+                    }
+                });
+            } else if e.tentativas_chiado == 3 {
+                e.tentativas_chiado += 1;
+                registro::anotar("captura: chiado continua depois de 3 tentativas, verificar a placa");
+            }
+        }
+        Ev::SinalOk => {
+            if e.chiado {
+                registro::anotar("captura: entrada limpa de novo");
+            }
+            e.chiado = false;
+            e.tentativas_chiado = 0;
+        }
         Ev::Parou(erro) => {
             e.captura = None;
             let erro = if erro.is_empty() { "a captura da entrada parou".to_string() } else { erro };
@@ -1947,6 +1982,8 @@ pub fn run() {
                 geracao_captura: 0,
                 transmissao_estado: "desligada".into(),
                 erro_captura: None,
+                chiado: false,
+                tentativas_chiado: 0,
             }));
             app.manage(estado.clone());
             let handle = app.handle().clone();

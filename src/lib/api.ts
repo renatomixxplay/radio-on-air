@@ -54,6 +54,8 @@ export interface Retrato {
   erro_captura: string | null;
   /** A gravação está ligada e funcionando. */
   gravando: boolean;
+  /** A entrada da placa está chegando só com chiado. */
+  chiado: boolean;
   proximo_agendamento: { horario: string; tipo: TipoAgenda; nome: string } | null;
   /** Endereço do link ao vivo no ar. */
   link: string | null;

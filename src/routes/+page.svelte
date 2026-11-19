@@ -118,6 +118,10 @@
           <span class="etiqueta problema" title={r.erro_captura ?? "A gravação não está funcionando"}><Icone nome="gravar" tamanho={14} />SEM GRAVAÇÃO</span>
         {/if}
       {/if}
+      <!-- Chiado na entrada da placa: o programa reabre sozinho (até 3 vezes). -->
+      {#if r?.chiado}
+        <span class="etiqueta chiado" title="Só chiado chegando da placa. O programa tenta reabrir sozinho; se continuar, tire e coloque o cabo USB da placa."><Icone nome="alert" tamanho={14} />VERIFIQUE SINAL ONLINE</span>
+      {/if}
       {#if r?.transmissao.ligada}
         {#if r.transmissao_estado === "conectado"}
           <span class="etiqueta transmitindo" title="Transmitindo pela internet"><Icone nome="transmitir" tamanho={14} />TRANSMITINDO</span>
@@ -251,6 +255,10 @@
   .transmitindo {
     background: var(--tag-musica-bg);
     color: var(--tag-musica);
+  }
+  .chiado {
+    background: var(--amarelo);
+    color: var(--amarelo-texto);
   }
   .problema {
     background: var(--laranja-bg);
