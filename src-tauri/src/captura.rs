@@ -3,7 +3,7 @@
 //! Roda num Liquidsoap separado do que toca as músicas: mudar a gravação ou a
 //! transmissão não interrompe o som no ar.
 
-use crate::config::{Audio, Gravacao, Transmissao, DIAS_GRAVACAO};
+use crate::config::{Audio, Canal, Gravacao, Transmissao, DIAS_GRAVACAO};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
@@ -31,6 +31,15 @@ impl Drop for Captura {
 /// Liquidsoap entende strings com aspas e `\"` / `\\`, como o Rust mostra com `{:?}`.
 fn texto(s: &str) -> String {
     format!("{s:?}")
+}
+
+/// Mono L / Mono R: um lado só da placa, copiado para os dois canais.
+fn canal(c: Canal) -> &'static str {
+    match c {
+        Canal::Estereo => "placa",
+        Canal::Esquerdo => "stereo(stereo.left(placa))",
+        Canal::Direito => "stereo(stereo.right(placa))",
+    }
 }
 
 fn entrada(placa: Option<&str>) -> String {
@@ -132,12 +141,14 @@ settings.log.file.set(true)
 settings.log.file.append.set(false)
 settings.log.file.path.set({log})
 
-entrada = {entrada}
+placa = {entrada}
+entrada = {canal}
 {gravacao}
 {transmissao}
 "#,
         log = texto(log),
         entrada = entrada(audio.entrada.as_deref()),
+        canal = canal(audio.canal),
         gravacao = gravacao(g),
         transmissao = transmissao(t, nome_radio),
     )
@@ -242,10 +253,14 @@ mod testes {
         let g = Gravacao { ligada: true, pasta: Some(dir.join("grav \"x\"")), bitrate: 24, minutos: 30 };
         let t = Transmissao { ligada: true, servidor: "exemplo.com".into(), senha: "s\"e".into(), estereo: false, ..Default::default() };
         let arq = dir.join("teste.liq");
-        std::fs::write(&arq, script(&dir.join("log").to_string_lossy(), &Audio::default(), &g, &t, "Rádio Teste")).unwrap();
-        let saida = std::process::Command::new(exe).arg("--check").arg(&arq).output().unwrap();
+        for (c, estereo) in [(Canal::Estereo, false), (Canal::Esquerdo, true), (Canal::Direito, false)] {
+            let audio = Audio { canal: c, ..Default::default() };
+            let t = Transmissao { estereo, ..t.clone() };
+            std::fs::write(&arq, script(&dir.join("log").to_string_lossy(), &audio, &g, &t, "Rádio Teste")).unwrap();
+            let saida = std::process::Command::new(&exe).arg("--check").arg(&arq).output().unwrap();
+            assert!(saida.status.success(), "{c:?}: {}{}", String::from_utf8_lossy(&saida.stdout), String::from_utf8_lossy(&saida.stderr));
+        }
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(saida.status.success(), "{}{}", String::from_utf8_lossy(&saida.stdout), String::from_utf8_lossy(&saida.stderr));
     }
 
     #[test]

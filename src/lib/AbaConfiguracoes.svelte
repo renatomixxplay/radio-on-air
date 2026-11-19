@@ -37,9 +37,10 @@
   function opcoes(lista: { id: string; nome: string }[], atual: string | null) {
     return atual && !lista.some((p) => p.id === atual) ? [...lista, { id: atual, nome: `${atual} (desligada)` }] : lista;
   }
-  async function trocarPlaca(chave: keyof Audio, valor: string) {
+  async function trocarPlaca(chave: "saida" | "pre_escuta" | "entrada", valor: string) {
     await api.audioDefinir({ ...r.audio, [chave]: valor || null });
   }
+  const CANAIS: [Audio["canal"], string][] = [["esquerdo", "Mono L"], ["direito", "Mono R"], ["estereo", "Estéreo"]];
 
   // ---------- gravação ----------
   let erroGravacao = $state("");
@@ -172,6 +173,17 @@
           <option value="">Padrão do sistema</option>
           {#each opcoes(placas.entradas, r.audio.entrada) as p (p.id)}<option value={p.id}>{p.nome}</option>{/each}
         </select>
+      </div>
+      <div class="linha item">
+        <div class="textos">
+          <span>Canal da entrada</span>
+          <span class="suave">Mesa ligada só num lado da placa? Escolha Mono L ou Mono R.</span>
+        </div>
+        <div class="chips">
+          {#each CANAIS as [c, nome]}
+            <button class="chip" class:on={r.audio.canal === c} onclick={() => api.audioDefinir({ ...r.audio, canal: c })}>{nome}</button>
+          {/each}
+        </div>
       </div>
       <div class="linha item">
         <div class="textos">

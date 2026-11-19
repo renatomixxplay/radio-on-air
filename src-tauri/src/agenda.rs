@@ -284,8 +284,12 @@ pub fn dia_semana(d: NaiveDate) -> usize {
     d.weekday().num_days_from_monday() as usize
 }
 
-/// Agendamentos que vencem exatamente neste minuto. A hora certa vem primeiro,
-/// para não atrasar se dividir o horário com um comercial.
+/// Agendamentos que vencem exatamente neste minuto, na ordem em que disparam:
+/// 1. Lista de músicas: tira do ar o link que estiver tocando, para a hora
+///    certa e o comercial do mesmo minuto tocarem (antes das músicas novas).
+/// 2. Link: o comercial e a hora certa do mesmo minuto são descartados.
+/// 3. Hora certa: não atrasa se dividir o horário com um comercial.
+/// 4. Comercial e comercial com ducking.
 pub fn do_minuto(v: &[Agendamento], data: NaiveDate, hora: u32, minuto: u32) -> Vec<Agendamento> {
     let agora = hora * 60 + minuto;
     let mut vencem: Vec<Agendamento> = v
@@ -293,7 +297,12 @@ pub fn do_minuto(v: &[Agendamento], data: NaiveDate, hora: u32, minuto: u32) -> 
         .filter(|a| a.vale_na_data(data) && a.minutos_do_dia().contains(&agora))
         .cloned()
         .collect();
-    vencem.sort_by_key(|a| a.tipo != TipoAgenda::HoraCerta);
+    vencem.sort_by_key(|a| match a.tipo {
+        TipoAgenda::Lista => 0,
+        TipoAgenda::Link => 1,
+        TipoAgenda::HoraCerta => 2,
+        TipoAgenda::Comercial | TipoAgenda::Ducking => 3,
+    });
     vencem
 }
 
@@ -630,6 +639,25 @@ mod testes {
         l.outras_datas = vec!["2099-05-02".into(), "".into(), "2099-01-10".into(), "2099-05-02".into(), "2000-01-01".into(), "lixo".into()];
         assert!(l.validar().is_ok());
         assert_eq!(l.outras_datas, ["2099-01-10", "2099-05-02"]);
+    }
+
+    #[test]
+    fn no_mesmo_minuto_lista_e_link_disparam_antes_do_comercial() {
+        let seg = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        let tipos = |v: &[Agendamento], h| do_minuto(v, seg, h, 0).iter().map(|a| a.tipo).collect::<Vec<_>>();
+        // Comercial criado antes e com horário mais cedo no dia: mesmo assim o link vai primeiro.
+        let v = vec![ag(1, "08:00, 19:00", [true; 7], TipoAgenda::Comercial), ag(2, "19:00", [true; 7], TipoAgenda::Link)];
+        assert_eq!(tipos(&v, 19), [TipoAgenda::Link, TipoAgenda::Comercial]);
+        // A lista vai antes da hora certa e do comercial.
+        let mut hora_certa = ag(4, "", [true; 7], TipoAgenda::HoraCerta);
+        hora_certa.intervalo = Some(60);
+        let v = vec![
+            hora_certa,
+            ag(1, "08:00, 20:00", [true; 7], TipoAgenda::Comercial),
+            ag(2, "20:00", [true; 7], TipoAgenda::Ducking),
+            ag(3, "20:00", [true; 7], TipoAgenda::Lista),
+        ];
+        assert_eq!(tipos(&v, 20), [TipoAgenda::Lista, TipoAgenda::HoraCerta, TipoAgenda::Comercial, TipoAgenda::Ducking]);
     }
 
     #[test]

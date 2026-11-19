@@ -42,6 +42,20 @@ pub struct Audio {
     pub pre_escuta: Option<String>,
     /// Entrada da placa (o que vem da mesa): usada na gravação e na transmissão.
     pub entrada: Option<String>,
+    /// Qual canal da entrada vale para a gravação e a transmissão.
+    pub canal: Canal,
+}
+
+/// Canal da entrada. Mesa ligada só num lado da placa: com "Estéreo" o som
+/// sai com metade do volume (a média com o lado mudo); "Mono L"/"Mono R"
+/// usam só aquele lado, nos dois canais.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Canal {
+    #[default]
+    Estereo,
+    Esquerdo,
+    Direito,
 }
 
 /// Gravação da entrada em MP3, um arquivo por hora (ou meia hora), numa pasta por dia.

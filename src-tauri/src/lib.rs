@@ -1418,7 +1418,7 @@ fn audio_definir(app: AppHandle, estado: State<Compartilhado>, audio: config::Au
     if antes.saida != novo.saida || antes.pre_escuta != novo.pre_escuta {
         reiniciar_motor(&app, &compartilhado, &mut e);
     }
-    if antes.entrada != novo.entrada {
+    if antes.entrada != novo.entrada || antes.canal != novo.canal {
         iniciar_captura(&app, &compartilhado, &mut e);
     }
     emitir(&app, &e);

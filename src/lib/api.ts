@@ -66,6 +66,8 @@ export interface Audio {
   saida: string | null;
   pre_escuta: string | null;
   entrada: string | null;
+  /** Canal da entrada usado na gravação e na transmissão. */
+  canal: "estereo" | "esquerdo" | "direito";
 }
 
 export interface Gravacao {
