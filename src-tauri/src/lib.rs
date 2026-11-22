@@ -204,6 +204,36 @@ struct CartuchoDto {
     caminho: String,
 }
 
+fn cartuchos(botoes: &[Option<PathBuf>]) -> Vec<Option<CartuchoDto>> {
+    botoes
+        .iter()
+        .map(|c| {
+            c.as_ref().map(|p| CartuchoDto {
+                nome: p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
+                caminho: p.to_string_lossy().into_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Cartucheira agendada como aparece na aba Cartucheira.
+#[derive(Serialize, Clone)]
+struct AgendadaDto {
+    id: u64,
+    nome: String,
+    inicio: String,
+    fim: String,
+    botoes: Vec<Option<CartuchoDto>>,
+    /// Vale hoje (está no ar no lugar da padrão).
+    hoje: bool,
+    /// O período já acabou.
+    passou: bool,
+}
+
+fn hoje() -> chrono::NaiveDate {
+    chrono::Local::now().date_naive()
+}
+
 #[derive(Serialize, Clone)]
 struct PreviaDto {
     caminho: String,
@@ -244,7 +274,10 @@ struct Retrato {
     gravando: bool,
     /// A entrada está chegando só com chiado.
     chiado: bool,
+    /// Os 8 botões no ar hoje: os da agendada do período ou os da padrão.
     cartucheira: Vec<Option<CartuchoDto>>,
+    cartucheira_padrao: Vec<Option<CartuchoDto>>,
+    cartucheiras_agendadas: Vec<AgendadaDto>,
     motor_ok: bool,
     iniciando_motor: bool,
     erro_motor: Option<String>,
@@ -306,17 +339,27 @@ impl Estado {
                 && self.config.gravacao.ligada
                 && self.config.gravacao.pasta.is_some(),
             chiado: self.chiado,
-            cartucheira: self
-                .config
-                .cartucheira
-                .iter()
-                .map(|c| {
-                    c.as_ref().map(|p| CartuchoDto {
-                        nome: p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default(),
-                        caminho: p.to_string_lossy().into_owned(),
+            cartucheira: cartuchos(self.config.botoes_do_dia(hoje())),
+            cartucheira_padrao: cartuchos(&self.config.cartucheira),
+            cartucheiras_agendadas: {
+                let dia = hoje();
+                let mut v: Vec<AgendadaDto> = self
+                    .config
+                    .cartucheiras_agendadas
+                    .iter()
+                    .map(|a| AgendadaDto {
+                        id: a.id,
+                        nome: a.nome.clone(),
+                        inicio: a.inicio.clone(),
+                        fim: a.fim.clone(),
+                        botoes: cartuchos(&a.botoes),
+                        hoje: a.vale_em(dia),
+                        passou: a.fim < dia.format("%Y-%m-%d").to_string(),
                     })
-                })
-                .collect(),
+                    .collect();
+                v.sort_by(|a, b| a.inicio.cmp(&b.inicio));
+                v
+            },
             motor_ok: self.motor.is_some(),
             iniciando_motor: self.iniciando_motor,
             erro_motor: self.erro_motor.clone(),
@@ -378,10 +421,10 @@ impl Estado {
         self.pendentes.iter().chain(self.fila.iter()).any(|i| i.travado)
     }
 
-    /// Vinheta sorteada dos botões da cartucheira (sem repetir a última).
+    /// Vinheta sorteada dos botões da cartucheira no ar hoje (sem repetir a última).
     fn sortear_vinheta(&mut self) -> Option<PathBuf> {
         use rand::seq::IndexedRandom;
-        let todas: Vec<&PathBuf> = self.config.cartucheira.iter().flatten().filter(|p| p.is_file()).collect();
+        let todas: Vec<&PathBuf> = self.config.botoes_do_dia(hoje()).iter().flatten().filter(|p| p.is_file()).collect();
         let outras: Vec<&PathBuf> = todas.iter().copied().filter(|p| Some(*p) != self.ultima_vinheta.as_ref()).collect();
         let escolhida = (*outras.choose(&mut rand::rng()).or_else(|| todas.first())?).clone();
         self.ultima_vinheta = Some(escolhida.clone());
@@ -831,6 +874,27 @@ fn ao_evento_captura(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: 
         }
     }
     emitir(app, &e);
+}
+
+/// Na virada do dia a cartucheira no ar pode trocar (entra ou sai uma
+/// agendada): avisa a tela, mesmo com o programa parado.
+fn iniciar_virada_cartucheira(app: AppHandle, estado: Compartilhado) {
+    std::thread::spawn(move || {
+        let mut dia = hoje();
+        loop {
+            std::thread::sleep(Duration::from_secs(15));
+            let agora = hoje();
+            if agora != dia {
+                dia = agora;
+                let e = travar(&estado);
+                registro::anotar(&format!(
+                    "virada do dia: cartucheira no ar = {}",
+                    e.config.agendada_do_dia(agora).map(|a| a.nome.as_str()).unwrap_or("padrão")
+                ));
+                emitir(&app, &e);
+            }
+        }
+    });
 }
 
 /// Uma vez por hora, apaga as pastas de gravação com mais de 30 dias.
@@ -1879,7 +1943,7 @@ fn cartucheira_tocar(app: AppHandle, estado: State<Compartilhado>, posicao: usiz
     let compartilhado = estado.inner().clone();
     let mut e = travar(&compartilhado);
     iniciar_motor(&app, &compartilhado, &mut e);
-    let caminho = e.config.cartucheira.get(posicao).cloned().flatten();
+    let caminho = e.config.botoes_do_dia(hoje()).get(posicao).cloned().flatten();
     if let (Some(m), Some(c)) = (&e.motor, caminho) {
         let _ = m.cartucho(&c.to_string_lossy());
     }
@@ -1892,10 +1956,43 @@ fn cartucheira_definir(
     estado: State<Compartilhado>,
     posicao: usize,
     caminho: Option<String>,
+    agendada: Option<u64>,
 ) -> Result<(), String> {
     let mut e = travar(&estado);
-    let slot = e.config.cartucheira.get_mut(posicao).ok_or("posição inválida")?;
+    let botoes = match agendada {
+        None => &mut e.config.cartucheira,
+        Some(id) => {
+            &mut e.config.cartucheiras_agendadas.iter_mut().find(|a| a.id == id).ok_or("cartucheira não encontrada")?.botoes
+        }
+    };
+    let slot = botoes.get_mut(posicao).ok_or("posição inválida")?;
     *slot = caminho.map(PathBuf::from);
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
+/// Cria (id 0) ou altera nome e datas de uma cartucheira agendada. Devolve o id.
+#[tauri::command]
+fn cartucheira_agendada_salvar(
+    app: AppHandle,
+    estado: State<Compartilhado>,
+    id: u64,
+    nome: String,
+    inicio: String,
+    fim: String,
+) -> Result<u64, String> {
+    let mut e = travar(&estado);
+    let id = e.config.salvar_agendada(id, &nome, &inicio, &fim)?;
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(id)
+}
+
+#[tauri::command]
+fn cartucheira_agendada_apagar(app: AppHandle, estado: State<Compartilhado>, id: u64) -> Result<(), String> {
+    let mut e = travar(&estado);
+    e.config.cartucheiras_agendadas.retain(|a| a.id != id);
     e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
     emitir(&app, &e);
     Ok(())
@@ -1993,6 +2090,7 @@ pub fn run() {
             iniciar_relogio_agenda(handle.clone(), estado.clone());
             iniciar_captura(&handle, &estado, &mut travar(&estado));
             iniciar_limpeza_gravacoes(estado.clone());
+            iniciar_virada_cartucheira(handle.clone(), estado.clone());
             iniciar_gravador_indice(estado);
             Ok(())
         })
@@ -2014,6 +2112,8 @@ pub fn run() {
             proxima,
             cartucheira_tocar,
             cartucheira_definir,
+            cartucheira_agendada_salvar,
+            cartucheira_agendada_apagar,
             definir_pasta,
             atualizar_musicas,
             alternar_repetir,

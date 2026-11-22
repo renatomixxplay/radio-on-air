@@ -16,6 +16,19 @@ export interface Item {
   travado: boolean;
 }
 
+/** Cartucheira com data de início e fim (incluindo os dois dias). */
+export type CartucheiraAgendada = {
+  id: number;
+  nome: string;
+  inicio: string;
+  fim: string;
+  botoes: ({ nome: string; caminho: string } | null)[];
+  /** Vale hoje: está no ar no lugar da padrão. */
+  hoje: boolean;
+  /** O período já acabou. */
+  passou: boolean;
+};
+
 export interface Retrato {
   no_ar: boolean;
   pausado: boolean;
@@ -32,7 +45,10 @@ export interface Retrato {
   vinheta_entre_musicas: boolean;
   protegido: boolean;
   bloqueios: Bloqueios;
+  /** Os 8 botões no ar hoje (da agendada do período ou da padrão). */
   cartucheira: ({ nome: string; caminho: string } | null)[];
+  cartucheira_padrao: ({ nome: string; caminho: string } | null)[];
+  cartucheiras_agendadas: CartucheiraAgendada[];
   motor_ok: boolean;
   iniciando_motor: boolean;
   erro_motor: string | null;
@@ -189,8 +205,13 @@ export const api = {
   parar: () => invoke<void>("parar"),
   proxima: () => invoke<void>("proxima"),
   cartucheiraTocar: (posicao: number) => invoke<void>("cartucheira_tocar", { posicao }),
-  cartucheiraDefinir: (posicao: number, caminho: string | null) =>
-    invoke<void>("cartucheira_definir", { posicao, caminho }),
+  /** `agendada` = id da cartucheira agendada; null = a padrão. */
+  cartucheiraDefinir: (posicao: number, caminho: string | null, agendada: number | null = null) =>
+    invoke<void>("cartucheira_definir", { posicao, caminho, agendada }),
+  /** id 0 = nova. Devolve o id. Datas "AAAA-MM-DD". */
+  cartucheiraAgendadaSalvar: (id: number, nome: string, inicio: string, fim: string) =>
+    invoke<number>("cartucheira_agendada_salvar", { id, nome, inicio, fim }),
+  cartucheiraAgendadaApagar: (id: number) => invoke<void>("cartucheira_agendada_apagar", { id }),
   definirPasta: (qual: "musicas" | "programas", caminho: string) =>
     invoke<void>("definir_pasta", { qual, caminho }),
   atualizarMusicas: () => invoke<void>("atualizar_musicas"),

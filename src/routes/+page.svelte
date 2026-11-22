@@ -183,7 +183,7 @@
   {:else if aba === "pastas"}
     <AbaPastas pastas={r.pastas} />
   {:else if aba === "cart"}
-    <AbaCartucheira slots={r.cartucheira} />
+    <AbaCartucheira padrao={r.cartucheira_padrao} agendadas={r.cartucheiras_agendadas} />
   {:else}
     <AbaConfiguracoes {r} {senhaSessao} aoMudarSenha={(s) => ((senhaSessao = s), (liberado = s !== ""))} />
   {/if}
