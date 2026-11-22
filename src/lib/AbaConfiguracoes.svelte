@@ -1,7 +1,7 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount, untrack } from "svelte";
-  import { api, type Audio, type Bloqueios, type Placas, type Retrato, type Transmissao } from "./api";
+  import { api, type Audio, type Bloqueios, type Encerramento, type Placas, type Retrato, type Transmissao } from "./api";
   import Icone from "./Icone.svelte";
 
   let {
@@ -82,6 +82,36 @@
     if (t.startsWith("erro")) return { texto: `Erro: ${t.replace(/^erro:?\s*/, "")} (tentando de novo…)`, cor: "erro" };
     return { texto: t, cor: "" };
   });
+
+  // ---------- abertura e encerramento ----------
+  const DIAS_NOME = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  async function pastaAbertura() {
+    const p = await open({ directory: true, multiple: false, title: "Pasta da abertura" });
+    if (typeof p === "string") await api.aberturaDefinir(p);
+  }
+  let erroEnc = $state("");
+  async function encerramento(mudar: Partial<Encerramento>) {
+    try {
+      await api.encerramentoDefinir({ ...r.encerramento, ...mudar });
+      erroEnc = "";
+    } catch (e) {
+      erroEnc = String(e);
+    }
+  }
+  async function pastaEncerramento() {
+    const p = await open({ directory: true, multiple: false, title: "Pasta do encerramento" });
+    if (typeof p === "string") await encerramento({ pasta: p });
+  }
+  function horarioDia(i: number, valor: string | null) {
+    const horarios = [...r.encerramento.horarios];
+    horarios[i] = valor;
+    encerramento({ horarios });
+  }
+  /** Marcar um dia já sugere o horário de outro dia marcado. */
+  function alternarDia(i: number) {
+    const atual = r.encerramento.horarios[i];
+    horarioDia(i, atual !== null ? null : (r.encerramento.horarios.find((h) => h !== null) ?? "00:00"));
+  }
 
   let nova = $state("");
   let repetir = $state("");
@@ -300,6 +330,19 @@
       </div>
       <div class="linha item">
         <div class="textos">
+          <span>Abertura</span>
+          <span class="suave">Toca todos os áudios desta pasta, em ordem, antes de qualquer outra coisa. Com abertura, entra no ar sozinho.</span>
+          <span class="reticencias suave">{r.pasta_abertura ?? "Sem abertura"}</span>
+        </div>
+        {#if r.pasta_abertura}
+          <button class="quadrado remover" onclick={() => api.aberturaDefinir(null)} title="Tirar a abertura" aria-label="Tirar a abertura">
+            <Icone nome="x" tamanho={18} />
+          </button>
+        {/if}
+        <button class="botao" onclick={pastaAbertura}><Icone nome="folderOpen" tamanho={16} /> Trocar</button>
+      </div>
+      <div class="linha item">
+        <div class="textos">
           <span>Abrir em tela cheia</span>
           <span class="suave">O programa já abre ocupando a tela toda. Para entrar ou sair na hora: botão no topo ou tecla F11.</span>
         </div>
@@ -308,6 +351,40 @@
         </button>
       </div>
     </section>
+
+    <h3 class="grupo">Encerramento</h3>
+    <section class="painel cartao">
+      <div class="linha item">
+        <div class="textos">
+          <span>Pasta do encerramento</span>
+          <span class="reticencias suave">{r.encerramento.pasta ?? "Nenhuma pasta escolhida"}</span>
+        </div>
+        <button class="botao" onclick={pastaEncerramento}><Icone nome="folderOpen" tamanho={16} /> Trocar</button>
+      </div>
+      <div class="linha item">
+        <div class="textos">
+          <span>Dias e horários</span>
+          <span class="suave">Na hora marcada, a música sai com fade, tocam todos os áudios da pasta (em ordem) e a rádio para até alguém apertar o Play.</span>
+        </div>
+      </div>
+      <div class="linha item dias">
+        {#each DIAS_NOME as d, i}
+          {@const h = r.encerramento.horarios[i]}
+          <div class="dia">
+            <button class="chip" class:on={h !== null} onclick={() => alternarDia(i)}>{d}</button>
+            <input
+              type="time"
+              value={h ?? ""}
+              disabled={h === null}
+              onchange={(e) => horarioDia(i, e.currentTarget.value || null)}
+              aria-label={`Horário de ${d}`}
+            />
+          </div>
+        {/each}
+      </div>
+      {#if erroEnc}<div class="msg erro">{erroEnc}</div>{/if}
+    </section>
+
     <h3 class="grupo">Músicas</h3>
     <section class="painel cartao">
       <div class="linha item">
@@ -482,5 +559,30 @@
   }
   .remover {
     color: #ff9b9b;
+  }
+  .quadrado {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+  .dias {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .dia {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .dia input {
+    width: 110px;
+    font-size: 16px;
+  }
+  .dia input:disabled {
+    opacity: 0.35;
   }
 </style>

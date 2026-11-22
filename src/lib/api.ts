@@ -41,6 +41,9 @@ export interface Retrato {
   pasta_musicas: string | null;
   pastas: Pasta[];
   tocar_ao_abrir: boolean;
+  /** Pasta da abertura: toca tudo ao abrir o programa (null = sem abertura). */
+  pasta_abertura: string | null;
+  encerramento: Encerramento;
   abrir_tela_cheia: boolean;
   vinheta_entre_musicas: boolean;
   protegido: boolean;
@@ -86,6 +89,13 @@ export interface Audio {
   entrada: string | null;
   /** Canal da entrada usado na gravação e na transmissão. */
   canal: "estereo" | "esquerdo" | "direito";
+}
+
+/** Encerramento: fade, os áudios da pasta e a rádio para até o Play. */
+export interface Encerramento {
+  pasta: string | null;
+  /** "HH:MM" de segunda a domingo; null = não encerra nesse dia. */
+  horarios: (string | null)[];
 }
 
 export interface Gravacao {
@@ -218,6 +228,8 @@ export const api = {
   pastaAdicionar: (caminho: string) => invoke<void>("pasta_adicionar", { caminho }),
   pastaRemover: (caminho: string) => invoke<void>("pasta_remover", { caminho }),
   definirTocarAoAbrir: (valor: boolean) => invoke<void>("definir_tocar_ao_abrir", { valor }),
+  aberturaDefinir: (pasta: string | null) => invoke<void>("abertura_definir", { pasta }),
+  encerramentoDefinir: (encerramento: Encerramento) => invoke<void>("encerramento_definir", { encerramento }),
   definirAbrirTelaCheia: (valor: boolean) => invoke<void>("definir_abrir_tela_cheia", { valor }),
   alternarTelaCheia: () => invoke<boolean>("alternar_tela_cheia"),
   /** Fecha e abre o programa de novo. */

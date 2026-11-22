@@ -449,6 +449,12 @@ fn validos(pasta: &str, hoje: NaiveDate) -> Vec<PathBuf> {
     arquivos_ordenados(Path::new(pasta)).into_iter().filter(|p| !vencido(p, hoje)).collect()
 }
 
+/// Todos os áudios da pasta, em ordem de nome, sem os vencidos (abertura e encerramento).
+pub fn todos_da_pasta(pasta: &Path) -> Vec<PathBuf> {
+    let hoje = Local::now().date_naive();
+    arquivos_ordenados(pasta).into_iter().filter(|p| !vencido(p, hoje)).collect()
+}
+
 /// Modo "só um": arquivo com data (ainda válida) tem prioridade. Só quando
 /// não há nenhum com data é que entra o rodízio dos sem data.
 fn escolher_um(rodizio: &mut Rodizio, pasta: &str, validos: Vec<PathBuf>) -> Option<PathBuf> {

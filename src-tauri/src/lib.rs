@@ -172,6 +172,9 @@ pub struct Estado {
     chiado: bool,
     /// Quantas vezes a captura já foi reaberta por causa do chiado (máximo 3).
     tentativas_chiado: u32,
+    /// Encerramento em andamento: só tocam os áudios do encerramento (nos
+    /// pendentes); quando acabam, a rádio para até alguém apertar Play.
+    encerrando: bool,
 }
 
 struct LinkAtivo {
@@ -259,6 +262,8 @@ struct Retrato {
     /// Pastas do painel "Pastas", em ordem alfabética.
     pastas: Vec<Pasta>,
     tocar_ao_abrir: bool,
+    pasta_abertura: Option<String>,
+    encerramento: config::Encerramento,
     abrir_tela_cheia: bool,
     vinheta_entre_musicas: bool,
     /// Tem senha definida.
@@ -324,6 +329,8 @@ impl Estado {
                 v
             },
             tocar_ao_abrir: self.config.tocar_ao_abrir,
+            pasta_abertura: caminho(&self.config.pasta_abertura),
+            encerramento: self.config.encerramento.clone(),
             abrir_tela_cheia: self.config.abrir_tela_cheia,
             vinheta_entre_musicas: self.config.vinheta_entre_musicas,
             protegido: self.config.senha_hash.is_some(),
@@ -414,7 +421,7 @@ impl Estado {
     /// até a troca). Pausar, Repetir, Próximo e microfone ficam travados.
     fn travado_por_agendamento(&self) -> bool {
         let comercial = self.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta));
-        comercial || self.por_cima.is_some() || self.repetir_auto || self.trocando_pos_ducking
+        comercial || self.por_cima.is_some() || self.repetir_auto || self.trocando_pos_ducking || self.encerrando
     }
 
     fn tem_entregue(&self) -> bool {
@@ -468,6 +475,16 @@ impl Estado {
             let presos: Vec<String> =
                 self.pendentes.iter().chain(self.fila.iter()).filter(|i| i.travado).map(|i| registro::nome(&i.caminho)).collect();
             registro::anotar(format!("programa: não entrega, já entregue ao motor: {}", presos.join(", ")));
+            return;
+        }
+        if self.encerrando {
+            // Só os áudios do encerramento; a fila espera o Play.
+            if let (Some(motor), Some(prox)) = (&self.motor, self.pendentes.first_mut()) {
+                match motor.enfileirar(&prox.caminho, false) {
+                    Ok(()) => prox.travado = true,
+                    Err(e) => self.erro_motor = Some(e),
+                }
+            }
             return;
         }
         if self.entregar_com_vinheta() {
@@ -592,11 +609,13 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
             // O motor ficou sem nada: entrega a próxima na hora (ao abrir,
             // só depois da procura de músicas novas).
             e.tocando = None;
-            if e.no_ar && !e.pausado && !e.procurando_musicas {
+            // A abertura toca mesmo enquanto procura músicas novas.
+            if e.no_ar && !e.pausado && (!e.procurando_musicas || !e.pendentes.is_empty()) {
                 registro::anotar("programa: motor vazio → manda a próxima");
                 completar_fila(app, estado, &mut e);
                 e.enviar_proximo();
                 e.ligar_link_se_pronto();
+                terminar_encerramento_se_acabou(&mut e);
             } else {
                 registro::anotar(format!(
                     "programa: motor vazio, não manda (no ar={}, pausado={}, procurando músicas={})",
@@ -728,7 +747,7 @@ fn iniciar_motor(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
             Ok(m) => {
                 e.motor = Some(m);
                 e.erro_motor = None;
-                if e.no_ar && !e.pausado && e.tocando.is_none() && !e.procurando_musicas {
+                if e.no_ar && !e.pausado && e.tocando.is_none() && (!e.procurando_musicas || !e.pendentes.is_empty()) {
                     completar_fila(&app, &estado, &mut e);
                     e.enviar_proximo();
                     e.ligar_link_se_pronto();
@@ -931,6 +950,15 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
             }
         }
         let falta = e.tocando.as_ref().and_then(|t| t.item.duracao.map(|d| d - t.decorrido()));
+        // O último áudio do encerramento acabou: para a rádio pelo relógio,
+        // sem depender do aviso de "motor vazio" (que pode não vir).
+        if e.encerrando && e.pendentes.is_empty() && !e.tem_entregue() && falta.map_or(e.tocando.is_none(), |f| f <= -0.3) {
+            e.tocando = None;
+            if terminar_encerramento_se_acabou(&mut e) {
+                emitir(&app, &e);
+            }
+            continue;
+        }
         // A abertura do link acabou: liga o link pelo relógio, sem depender do
         // aviso de "motor vazio" (que pode não vir).
         let abertura_acabou =
@@ -1061,7 +1089,7 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
             // Limpa a fila e põe músicas novas da pasta. Comercial e hora certa
             // tocando não levam fade (agendamento não se corta).
             let agendado = e.tocando.as_ref().is_some_and(|t| matches!(t.item.tipo, Tipo::Comercial | Tipo::HoraCerta));
-            let fade = e.no_ar && ag.modo_lista == ModoLista::Fade && e.link.is_none() && !agendado && e.tocando.is_some();
+            let fade = e.no_ar && ag.modo_lista == ModoLista::Fade && e.link.is_none() && !agendado && e.tocando.is_some() && !e.encerrando;
             if fade {
                 e.fila.clear();
             } else {
@@ -1078,6 +1106,8 @@ fn disparar(app: &AppHandle, estado: &Compartilhado, e: &mut Estado, ag: &Agenda
         }
         // O resto só quando a rádio está no ar.
         _ if !e.no_ar => {}
+        // Encerrando: nada mais entra no ar.
+        _ if e.encerrando => {}
         TipoAgenda::Link => iniciar_link(app, estado, e, ag),
         // Durante o link, comercial e hora certa são descartados.
         _ if e.link.is_some() => {}
@@ -1220,6 +1250,12 @@ fn encerrar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
         e.pendentes.retain(|i| i.travado);
         return;
     }
+    desligar_link_com_fade(app, estado);
+}
+
+/// Fade de 3 s no link que estava no ar (já tirado de `e.link`), desliga e
+/// segue com o próximo (a fila ou, no encerramento, os áudios dele).
+fn desligar_link_com_fade(app: &AppHandle, estado: &Compartilhado) {
     let (app, estado) = (app.clone(), estado.clone());
     std::thread::spawn(move || {
         const PASSOS: u32 = 15;
@@ -1242,6 +1278,72 @@ fn encerrar_link(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
         }
         emitir(&app, &e);
     });
+}
+
+// ---------- abertura e encerramento ----------
+
+/// Abertura: ao abrir o programa, todos os áudios da pasta (em ordem) entram
+/// antes de qualquer outra coisa.
+fn preparar_abertura(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    let Some(pasta) = e.config.pasta_abertura.clone() else { return };
+    let arquivos = agenda::todos_da_pasta(&pasta);
+    registro::anotar(format!("abertura: {} áudio(s) da pasta {}", arquivos.len(), pasta.display()));
+    agendar_em_sequencia(app, estado, e, arquivos, Tipo::Vinheta);
+}
+
+/// Encerramento: fade de 3 s no que está tocando (música, comercial ou link),
+/// tocam todos os áudios da pasta (em ordem) e a rádio para.
+fn iniciar_encerramento(app: &AppHandle, estado: &Compartilhado, e: &mut Estado) {
+    let Some(pasta) = e.config.encerramento.pasta.clone() else { return };
+    if !e.no_ar || e.pausado || e.encerrando {
+        registro::anotar(format!("encerramento: não toca (no ar={}, pausado={})", e.no_ar, e.pausado));
+        return;
+    }
+    let arquivos = agenda::todos_da_pasta(&pasta);
+    registro::anotar(format!("encerramento: {} áudio(s) da pasta {}", arquivos.len(), pasta.display()));
+    e.encerrando = true;
+    // O que esperava a vez sai: depois do encerramento não toca mais nada.
+    e.pendentes.clear();
+    e.ducking_adiado = None;
+    e.repetir = false;
+    e.repetir_auto = false;
+    e.repeticao_enviada = false;
+    e.trocando_pos_ducking = false;
+    // Uma troca marcada por um ducking não vale mais.
+    e.vez_ducking += 1;
+    let link_no_ar = e.link.take().is_some_and(|l| l.ligado);
+    agendar_em_sequencia(app, estado, e, arquivos, Tipo::Vinheta);
+    if link_no_ar {
+        desligar_link_com_fade(app, estado);
+    } else if e.tocando.is_some() {
+        fade_e_proxima(app.clone(), estado.clone(), false);
+    } else {
+        if e.tem_entregue() {
+            if let Some(m) = &e.motor {
+                let _ = m.esvaziar_e_pular();
+            }
+            e.destravar_tudo();
+        }
+        e.enviar_proximo();
+    }
+}
+
+/// O encerramento terminou de tocar: a rádio para (como o botão Parar) e só
+/// volta com o Play.
+fn terminar_encerramento_se_acabou(e: &mut Estado) -> bool {
+    if !e.encerrando || !e.pendentes.is_empty() || e.tem_entregue() || e.tocando.is_some() {
+        return false;
+    }
+    registro::anotar("encerramento: acabou, rádio parada até apertar o Play");
+    e.encerrando = false;
+    e.no_ar = false;
+    e.pausado = false;
+    if let Some(m) = &e.motor {
+        let _ = m.pausar();
+        let _ = m.pular();
+        e.saida_parada = true;
+    }
+    true
 }
 
 /// Fecha o motor e a gravação/transmissão (ao sair ou reiniciar).
@@ -1281,8 +1383,13 @@ fn iniciar_relogio_agenda(app: AppHandle, estado: Compartilhado) {
             ultimo = agora;
             let mut e = travar(&estado);
             let vencem = agenda::do_minuto(&e.agenda, agora.0, agora.1, agora.2);
-            if vencem.is_empty() {
+            let encerra = e.config.encerramento.vence(agora.0, agora.1, agora.2);
+            if vencem.is_empty() && !encerra {
                 continue;
+            }
+            // O encerramento vem antes: os agendamentos do mesmo minuto não entram.
+            if encerra {
+                iniciar_encerramento(&app, &estado, &mut e);
             }
             for ag in &vencem {
                 disparar(&app, &estado, &mut e, ag);
@@ -1605,6 +1712,26 @@ fn definir_tocar_ao_abrir(app: AppHandle, estado: State<Compartilhado>, valor: b
     Ok(())
 }
 
+/// Pasta da abertura (`None` = sem abertura).
+#[tauri::command]
+fn abertura_definir(app: AppHandle, estado: State<Compartilhado>, pasta: Option<String>) -> Result<(), String> {
+    let mut e = travar(&estado);
+    e.config.pasta_abertura = pasta.map(PathBuf::from);
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
+#[tauri::command]
+fn encerramento_definir(app: AppHandle, estado: State<Compartilhado>, mut encerramento: config::Encerramento) -> Result<(), String> {
+    encerramento.validar()?;
+    let mut e = travar(&estado);
+    e.config.encerramento = encerramento;
+    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
+    emitir(&app, &e);
+    Ok(())
+}
+
 fn senha_confere(e: &Estado, senha: &str) -> bool {
     e.config.senha_hash.as_deref().is_none_or(|h| h == config::hash_senha(senha))
 }
@@ -1774,6 +1901,7 @@ fn parar(app: AppHandle, estado: State<Compartilhado>) {
     registro::anotar("botão Parar");
     e.no_ar = false;
     e.pausado = false;
+    e.encerrando = false;
     if let Some(m) = &e.motor {
         let _ = m.pausar();
         let _ = m.pular();
@@ -2050,7 +2178,8 @@ pub fn run() {
                 procurando_musicas: false,
                 fila: vec![],
                 tocando: None,
-                no_ar: config.tocar_ao_abrir,
+                // Com abertura, entra no ar sozinho mesmo sem "Entrar no ar ao abrir".
+                no_ar: config.tocar_ao_abrir || config.pasta_abertura.is_some(),
                 pausado: false,
                 saida_parada: false,
                 repetir: false,
@@ -2081,9 +2210,11 @@ pub fn run() {
                 erro_captura: None,
                 chiado: false,
                 tentativas_chiado: 0,
+                encerrando: false,
             }));
             app.manage(estado.clone());
             let handle = app.handle().clone();
+            preparar_abertura(&handle, &estado, &mut travar(&estado));
             iniciar_motor(&handle, &estado, &mut travar(&estado));
             carregar_biblioteca(handle.clone(), estado.clone(), false);
             iniciar_relogio(handle.clone(), estado.clone());
@@ -2124,6 +2255,8 @@ pub fn run() {
             pasta_adicionar,
             pasta_remover,
             definir_tocar_ao_abrir,
+            abertura_definir,
+            encerramento_definir,
             definir_abrir_tela_cheia,
             alternar_tela_cheia,
             tela_cheia_agora,

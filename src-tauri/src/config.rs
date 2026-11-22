@@ -22,6 +22,10 @@ pub struct Config {
     pub pastas: Vec<PathBuf>,
     /// Entrar no ar sozinho ao abrir o programa.
     pub tocar_ao_abrir: bool,
+    /// Abertura: ao abrir o programa, toca todos os áudios desta pasta (em
+    /// ordem) antes de qualquer outra coisa. Com pasta, entra no ar sozinho.
+    pub pasta_abertura: Option<PathBuf>,
+    pub encerramento: Encerramento,
     /// Abrir o programa já em tela cheia.
     pub abrir_tela_cheia: bool,
     /// Senha (hash SHA-256) para mexer nas áreas bloqueadas. `None` = sem senha.
@@ -57,6 +61,46 @@ impl CartucheiraAgendada {
 
     pub fn vale_em(&self, dia: NaiveDate) -> bool {
         self.periodo().is_some_and(|(i, f)| i <= dia && dia <= f)
+    }
+}
+
+/// Encerramento: no horário do dia, a música sai com fade, tocam todos os
+/// áudios da pasta (em ordem) e a rádio para até alguém apertar Play.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Encerramento {
+    pub pasta: Option<PathBuf>,
+    /// Horário "HH:MM" de cada dia, de segunda a domingo. `None` = não encerra nesse dia.
+    pub horarios: [Option<String>; 7],
+}
+
+/// "HH:MM" → minutos do dia (0 = 00:00).
+fn minuto_de(txt: &str) -> Option<u32> {
+    let (h, m) = txt.split_once(':')?;
+    let (h, m): (u32, u32) = (h.trim().parse().ok()?, m.trim().parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
+}
+
+impl Encerramento {
+    /// Encerra nesta data, neste minuto (pela regra do dia da semana).
+    pub fn vence(&self, data: NaiveDate, hora: u32, minuto: u32) -> bool {
+        use chrono::Datelike;
+        let dia = data.weekday().num_days_from_monday() as usize;
+        self.pasta.is_some() && self.horarios[dia].as_deref().and_then(minuto_de) == Some(hora * 60 + minuto)
+    }
+
+    /// Horários no formato HH:MM; dia marcado pede pasta.
+    pub fn validar(&mut self) -> Result<(), String> {
+        const DIAS: [&str; 7] = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"];
+        for (i, h) in self.horarios.iter_mut().enumerate() {
+            let Some(txt) = h.as_deref() else { continue };
+            let m = minuto_de(txt).ok_or_else(|| format!("Horário inválido na {}: {txt}.", DIAS[i]))?;
+            *h = Some(format!("{:02}:{:02}", m / 60, m % 60));
+        }
+        if self.pasta.is_none() && self.horarios.iter().any(Option::is_some) {
+            return Err("Escolha a pasta do encerramento.".into());
+        }
+        Ok(())
     }
 }
 
@@ -204,6 +248,8 @@ impl Default for Config {
             cartucheiras_agendadas: vec![],
             pastas: vec![],
             tocar_ao_abrir: false,
+            pasta_abertura: None,
+            encerramento: Encerramento::default(),
             abrir_tela_cheia: false,
             senha_hash: None,
             bloqueios: Bloqueios::default(),
@@ -351,5 +397,70 @@ mod testes_agendadas {
         let c: Config = serde_json::from_str(r#"{"cartucheira":["a.mp3",null]}"#).unwrap();
         assert!(c.cartucheiras_agendadas.is_empty());
         assert_eq!(c.cartucheira[0], Some("a.mp3".into()));
+    }
+}
+
+#[cfg(test)]
+mod testes_encerramento {
+    use super::*;
+
+    fn dia(t: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(t, "%Y-%m-%d").unwrap()
+    }
+
+    /// O exemplo da rádio: segunda a sábado às 02:00 e domingo às 00:00.
+    fn exemplo() -> Encerramento {
+        let mut h: [Option<String>; 7] = Default::default();
+        for d in h.iter_mut().take(6) {
+            *d = Some("02:00".into());
+        }
+        h[6] = Some("00:00".into());
+        Encerramento { pasta: Some("/encerramento".into()), horarios: h }
+    }
+
+    #[test]
+    fn cada_dia_no_seu_horario() {
+        let e = exemplo();
+        // 2026-11-23 é segunda; 2026-11-28 é sábado; 2026-11-29 é domingo.
+        assert!(e.vence(dia("2026-11-23"), 2, 0));
+        assert!(e.vence(dia("2026-11-28"), 2, 0));
+        assert!(!e.vence(dia("2026-11-23"), 0, 0));
+        assert!(!e.vence(dia("2026-11-23"), 2, 1));
+        assert!(!e.vence(dia("2026-11-23"), 1, 59));
+        assert!(e.vence(dia("2026-11-29"), 0, 0));
+        assert!(!e.vence(dia("2026-11-29"), 2, 0));
+    }
+
+    #[test]
+    fn dia_desmarcado_ou_sem_pasta_nao_encerra() {
+        let mut e = exemplo();
+        e.horarios[2] = None; // quarta
+        assert!(!e.vence(dia("2026-11-25"), 2, 0));
+        assert!(e.vence(dia("2026-11-26"), 2, 0));
+        e.pasta = None;
+        assert!(!e.vence(dia("2026-11-26"), 2, 0));
+    }
+
+    #[test]
+    fn validar_arruma_horario_e_pede_pasta() {
+        let mut e = exemplo();
+        e.horarios[0] = Some("2:5".into());
+        e.validar().unwrap();
+        assert_eq!(e.horarios[0].as_deref(), Some("02:05"));
+        e.horarios[1] = Some("25:00".into());
+        assert!(e.validar().is_err());
+        let mut sem_pasta = exemplo();
+        sem_pasta.pasta = None;
+        assert!(sem_pasta.validar().is_err());
+        // Sem pasta e sem horário: desligado, pode salvar.
+        assert!(Encerramento::default().validar().is_ok());
+    }
+
+    #[test]
+    fn config_antiga_abre_sem_abertura_nem_encerramento() {
+        let c: Config = serde_json::from_str(r#"{"tocar_ao_abrir":true,"cartucheira":["a.mp3"]}"#).unwrap();
+        assert!(c.tocar_ao_abrir);
+        assert_eq!(c.pasta_abertura, None);
+        assert_eq!(c.encerramento, Encerramento::default());
     }
 }
