@@ -183,7 +183,11 @@ end
 # crossfade: o pedaço do fim da música que o crossfade guarda (2 s) já sai com o
 # volume baixo do fade. Depois dele, voltar o volume ao normal não traz a música
 # antiga de volta alta (era o "pulo" no fim do fade).
+# O volume só volta ao normal quando a PRÓXIMA faixa começa. Se o programa
+# devolvesse logo depois do pulo, o último pedaço (0,2 s) da faixa que saía
+# já vinha com o volume cheio: a música "levantava" no finalzinho do fade.
 vol_troca = interactive.float("vol_troca", 1.0)
+fila_q.on_track(synchronous=true, fun (_) -> vol_troca.set(1.0))
 fila = cross(duration=2., transicao, amplify(override=null, vol_troca, fila_q))
 musica = fallback(id="musica", track_sensitive=false, [fila, blank(id="silencio")])
 # A troca de faixa sem mistura gera uma "faixa vazia" de passagem com a fila

@@ -20,14 +20,10 @@ pub struct Config {
     pub cartucheiras_agendadas: Vec<CartucheiraAgendada>,
     /// Pastas que aparecem no painel "Pastas" da tela No ar.
     pub pastas: Vec<PathBuf>,
-    /// Entrar no ar sozinho ao abrir o programa.
-    pub tocar_ao_abrir: bool,
     /// Abertura: ao abrir o programa, toca todos os áudios desta pasta (em
     /// ordem) antes de qualquer outra coisa. Com pasta, entra no ar sozinho.
     pub pasta_abertura: Option<PathBuf>,
     pub encerramento: Encerramento,
-    /// Abrir o programa já em tela cheia.
-    pub abrir_tela_cheia: bool,
     /// Senha (hash SHA-256) para mexer nas áreas bloqueadas. `None` = sem senha.
     pub senha_hash: Option<String>,
     pub bloqueios: Bloqueios,
@@ -247,10 +243,8 @@ impl Default for Config {
             cartucheira: vec![None; SLOTS_CARTUCHEIRA],
             cartucheiras_agendadas: vec![],
             pastas: vec![],
-            tocar_ao_abrir: false,
             pasta_abertura: None,
             encerramento: Encerramento::default(),
-            abrir_tela_cheia: false,
             senha_hash: None,
             bloqueios: Bloqueios::default(),
             nome_radio: "Radio On Air".into(),
@@ -459,7 +453,7 @@ mod testes_encerramento {
     #[test]
     fn config_antiga_abre_sem_abertura_nem_encerramento() {
         let c: Config = serde_json::from_str(r#"{"tocar_ao_abrir":true,"cartucheira":["a.mp3"]}"#).unwrap();
-        assert!(c.tocar_ao_abrir);
+        assert_eq!(c.cartucheira[0], Some(PathBuf::from("a.mp3")));
         assert_eq!(c.pasta_abertura, None);
         assert_eq!(c.encerramento, Encerramento::default());
     }

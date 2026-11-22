@@ -21,6 +21,7 @@
   import grip from "@tabler/icons/outline/grip-vertical.svg?raw";
   import alert from "@tabler/icons/outline/alert-triangle.svg?raw";
   import voltar from "@tabler/icons/outline/chevron-left.svg?raw";
+  import avancar from "@tabler/icons/outline/chevron-right.svg?raw";
   import repetir from "@tabler/icons/outline/repeat.svg?raw";
   import lixeira from "@tabler/icons/outline/trash.svg?raw";
   import fone from "@tabler/icons/outline/headphones.svg?raw";
@@ -35,13 +36,11 @@
   import aovivo from "@tabler/icons/outline/broadcast.svg?raw";
   import gravar from "@tabler/icons/outline/player-record.svg?raw";
   import transmitir from "@tabler/icons/outline/world.svg?raw";
-  import telaCheia from "@tabler/icons/outline/maximize.svg?raw";
-  import sairTelaCheia from "@tabler/icons/outline/minimize.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
-    search, plus, menos, x, refresh, calendar, settings, grip, alert, voltar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto, aovivo, gravar, transmitir,
-    telaCheia, sairTelaCheia, texto,
+    search, plus, menos, x, refresh, calendar, settings, grip, alert, voltar, avancar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto, aovivo, gravar, transmitir,
+    texto,
     cantor: ducking,
   };
   export type NomeIcone = keyof typeof icones;

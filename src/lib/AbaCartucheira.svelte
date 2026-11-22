@@ -4,6 +4,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, type CartucheiraAgendada } from "./api";
   import Icone from "./Icone.svelte";
+  import Data from "./Data.svelte";
 
   type Slot = { nome: string; caminho: string } | null;
   let { padrao, agendadas }: { padrao: Slot[]; agendadas: CartucheiraAgendada[] } = $props();
@@ -94,14 +95,14 @@
         <span class="suave">Nome</span>
         <input type="text" bind:value={nome} placeholder="Ex.: Natal" />
       </label>
-      <label class="campo">
+      <div class="campo">
         <span class="suave">Início</span>
-        <input type="date" bind:value={inicio} />
-      </label>
-      <label class="campo">
+        <Data bind:value={inicio} />
+      </div>
+      <div class="campo">
         <span class="suave">Fim</span>
-        <input type="date" bind:value={fim} />
-      </label>
+        <Data bind:value={fim} />
+      </div>
       <div class="acoes">
         {#if mudou}
           <button class="botao" onclick={() => (sel === 0 ? abrir(null) : abrir(sel))}>Cancelar</button>
@@ -191,7 +192,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--no-ar);
+    background: var(--verde);
     flex: none;
   }
   .periodo {

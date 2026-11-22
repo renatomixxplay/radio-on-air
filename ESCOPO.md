@@ -35,7 +35,7 @@ Software de automação de rádio (rádio DJ) para Linux, open source, feito par
 - ✅ O motor de áudio **liga sozinho ao abrir o programa**, em segundo plano (no Mac leva ~4 s).
 - ✅ **Motor que se religa sozinho:** se o motor cair (placa USB solta, driver, arquivo estragado, antivírus…), o aviso vermelho mostra o motivo com "religando…" e em **3 s** ele volta. Se a rádio estava no ar, continua no ar com a **próxima** da fila (a que tocava não volta, porque pode ter sido ela que derrubou o motor); link volta a conectar e agendados pendentes seguem. Se o motor não conseguir ligar com a rádio no ar, tenta de novo **a cada 10 s** sem tirar do ar. Estava pausada: volta parada. Testado no Mac derrubando o motor duas vezes seguidas.
 - ✅ **Fechou o programa, fecha o motor** e a gravação/transmissão.
-- ✅ **Tela cheia:** botão (só ícone) no topo, depois do relógio, e tecla **F11** (no Mac o sistema usa o F11; lá só o botão). Em Configurações, chave **"Abrir em tela cheia"** (desligada por padrão).
+- ✅ **Janela:** o programa sempre abre maximizado (janela ocupando a tela, com a barra de título). Sem tela cheia, sem botão e sem configuração para isso.
 - ✅ No Mac a saída tem uma folga de **1 s de áudio** contra travadinhas (no Linux não precisa).
 
 ### Arquivos de dados
@@ -44,7 +44,7 @@ Ficam em `~/.local/share/org.radioonair.app/` (Linux), `~/Library/Application Su
 
 | Arquivo | Conteúdo |
 |---|---|
-| `config.json` | Pasta de músicas, pastas, cartucheira, tocar ao abrir, senha (hash) e bloqueios |
+| `config.json` | Pasta de músicas, pastas, cartucheira, abertura, senha (hash) e bloqueios |
 | `indice.txt` | Lista de nomes das músicas (o programa abre na hora mesmo com 100 mil) |
 | `agendamentos.json` | Agendamentos |
 | `rodizio.json` | Último arquivo tocado de cada pasta no modo "só um" |
@@ -117,7 +117,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 - 8 cartões (2 colunas): número, nome do áudio, **Escolher** e lixeira.
 
 ### 3.5 Configurações ✅ (parte)
-- ✅ **Entrar no ar sozinho** ao abrir o programa.
+- ✅ **Entrar no ar sozinho** ao abrir o programa: só quando tem **pasta de abertura** (sem chave separada). Sem pasta, abre parado.
 - ✅ Pasta de músicas (**Trocar**) e **Atualizar** (relê o acervo).
 - ✅ **Nome da rádio**: aparece no topo (sem ícone) e na transmissão.
 - ✅ **Placa de som**, **Gravação** e **Transmissão** (ver seção 7).
@@ -151,7 +151,7 @@ Por **horário + dias da semana**. O programa só preenche/executa — não exis
 |---|---|
 | 🎵 **Lista de músicas** | **Limpa a fila** e põe músicas novas (aleatório) da pasta. Duas opções: **Aguardar** (a música atual termina) ou **Imediato** (fade de 3 s e a lista já começa; comercial/hora certa tocando não levam fade). Vale até a próxima lista. Ao abrir no meio do dia, vale a última lista que já passou. Também **encerra o link** (fade de 3 s). |
 | 📢 **Comercial** | Espera a música acabar e toca as pastas anexadas. |
-| 🎙 **Comercial com ducking** | Entra **por cima**: a música cai para 20% quando há voz (desce em ~0,6 s) e volta **suave em ~2 s** nos silêncios, em degraus iguais de volume (antes subia num salto de ~10 dB). Entra na hora só se estiver tocando música e a próxima **ainda não foi entregue** ao motor; senão (últimos 5 s, comercial ou vinheta tocando) **espera a próxima música e entra 10 s depois** que ela começar (descartado se esperar mais de 10 min ou entrar um link). Se o bloco **não cabe** no que falta da música, ela **repete por baixo**; quando a fala acaba, a música volta ao normal, **toca mais 10 s** e sai com **fade de 3 s** para a próxima (se a música mudar nesse meio tempo, não troca). O volume do fade vale **antes** do crossfade: o fim da música que sai continua baixo enquanto a próxima entra (antes ela voltava alta por ~0,6 s — o "pulo"). No fim do fade (e no **Passar**) o programa **já manda a próxima** ao motor, sem esperar o aviso de "fiquei vazio" do motor — esse aviso às vezes não vinha e a rádio ficava muda. **Sem vinheta** durante o ducking nem logo depois dele. O botão **Repetir** não liga faltando menos de 10 s. |
+| 🎙 **Comercial com ducking** | Entra **por cima**: a música cai para 20% quando há voz (desce em ~0,6 s) e volta **suave em ~2 s** nos silêncios, em degraus iguais de volume (antes subia num salto de ~10 dB). Entra na hora só se estiver tocando música e a próxima **ainda não foi entregue** ao motor; senão (últimos 5 s, comercial ou vinheta tocando) **espera a próxima música e entra 10 s depois** que ela começar (descartado se esperar mais de 10 min ou entrar um link). Se o bloco **não cabe** no que falta da música, ela **repete por baixo**; quando a fala acaba, a música volta ao normal, **toca mais 10 s** e sai com **fade de 3 s** para a próxima (se a música mudar nesse meio tempo, não troca). O volume do fade vale **antes** do crossfade: o fim da música que sai continua baixo enquanto a próxima entra (antes ela voltava alta por ~0,6 s — o "pulo"). O volume só volta ao normal quando a **próxima faixa começa** (quem devolve é o motor; garantia de 5 s se a próxima demorar): antes o último pedaço de 0,2 s saía no volume cheio e a música "levantava" no finalzinho de todo fade (encerramento, lista Imediato, link, fim do ducking). No fim do fade (e no **Passar**) o programa **já manda a próxima** ao motor, sem esperar o aviso de "fiquei vazio" do motor — esse aviso às vezes não vinha e a rádio ficava muda. **Sem vinheta** durante o ducking nem logo depois dele. O botão **Repetir** não liga faltando menos de 10 s. |
 | 🕐 **Hora certa** | **Só existe uma.** Toca na **hora cheia** ou **a cada 30 min** (:00 e :30), nos dias marcados. Espera a música acabar e toca, nesta ordem, três partes opcionais: **abertura da hora** (um arquivo da pasta), **hora** e **comercial da hora** (um arquivo da pasta). A hora falada é a do fim da música, não a do disparo. Arquivos de hora: separados `HRS08` + `MIN10` (hora cheia = só `HRS08`) ou um só (`HRS08_MIN10`, `08-10`, `08h10`, `0810`). |
 | 📡 **Link** | Áudio ao vivo por endereço (MP3/AAC/HLS), ex.: Voz do Brasil. No horário, **fade de 3 s** na música, toca **um arquivo da pasta de abertura** (opcional) e entra o link. Toca **até a próxima lista ou outro link**. Se cair, **silêncio tentando reconectar** sozinho. Comercial, ducking e hora certa que caem durante o link (ou esperavam a música acabar) são **descartados**. Passar fica bloqueado. **Volume do link** em dB no agendamento (botões − e +, de 1 em 1; 0 = como chega). |
 | 📻 **Link na fila** | Arquivo **`.m3u`** ou **`.pls`** com o endereço, numa pasta da aba Pastas (não entra no acervo). Vai para a fila pelo **+**, com o ícone de link. Entra quando a faixa anterior acaba e toca até alguém apertar **Passar** (fade de 3 s e a fila continua). Volume no **nome do arquivo**: `Rádio USP [-6dB].m3u`. |
@@ -196,7 +196,7 @@ Medido no Mac (versão de desenvolvimento), tocando: programa ~30 MB, tela ~55 M
 ## 10. Fases
 
 1. ✅ **Tocando** — acervo, busca, fila, Tocando agora, cartucheira, pré-escuta.
-2. ✅ **Agendamentos** — listas, comerciais, ducking que detecta fala, hora certa, validade, rodízio. Mais as abas Pastas, Cartucheira e Configurações (senha, tocar ao abrir).
+2. ✅ **Agendamentos** — listas, comerciais, ducking que detecta fala, hora certa, validade, rodízio. Mais as abas Pastas, Cartucheira e Configurações (senha, abertura).
 3. **Saídas** — placa da pré-escuta, transmissão Icecast, gravação.
 4. **Acabamento** — ✅ instalador `.deb` + atualizações pelo apt (gerado pelo GitHub); teste num Debian 13 de verdade (inclusive duas placas, uma M-Audio USB), medir leveza.
 
@@ -250,4 +250,4 @@ Nada disso foi testado de ouvido ou clicando por completo:
 **Abas**
 - [ ] Pastas: adicionar várias, tirar, ordem alfabética no No ar.
 - [ ] Cartucheira: escolher/esvaziar os 8 botões.
-- [ ] Configurações: entrar no ar sozinho (fechar e abrir o programa), Atualizar, criar/trocar/remover senha, bloqueios por aba, cadeado para bloquear de novo.
+- [ ] Configurações: com pasta de abertura entra no ar sozinho, sem pasta abre parado (fechar e abrir o programa), Atualizar, criar/trocar/remover senha, bloqueios por aba, cadeado para bloquear de novo.

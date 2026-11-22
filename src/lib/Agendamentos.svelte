@@ -3,6 +3,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { api, type Agendamento, type TipoAgenda } from "./api";
   import Icone, { type NomeIcone } from "./Icone.svelte";
+  import Data from "./Data.svelte";
 
   const DIAS = ["S", "T", "Q", "Q", "S", "S", "D"];
   const DIAS_NOME = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
@@ -381,7 +382,7 @@
         <div class="horarios">
           {#each edicao.outras_datas ?? [] as _, i}
             <div class="horario">
-              <input type="date" class="data" bind:value={edicao.outras_datas![i]} />
+              <Data bind:value={edicao.outras_datas![i]} largura={150} embutido />
               <button class="tirar" onclick={() => edicao!.outras_datas!.splice(i, 1)} title="Tirar esta data" aria-label="Tirar esta data">
                 <Icone nome="x" tamanho={16} />
               </button>
@@ -612,9 +613,6 @@
   .horario .tirar:hover {
     color: #fff;
     background: var(--no-ar);
-  }
-  .horario input.data {
-    width: 150px;
   }
   .ativo.feriado {
     margin-top: 18px;

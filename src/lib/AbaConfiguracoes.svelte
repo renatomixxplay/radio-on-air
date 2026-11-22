@@ -321,17 +321,8 @@
     <section class="painel cartao">
       <div class="linha item">
         <div class="textos">
-          <span>Entrar no ar sozinho</span>
-          <span class="suave">Começa a tocar assim que o programa abre (bom para quando a energia volta).</span>
-        </div>
-        <button class="chave" class:on={r.tocar_ao_abrir} onclick={() => api.definirTocarAoAbrir(!r.tocar_ao_abrir)} aria-label="Entrar no ar sozinho">
-          <span></span>
-        </button>
-      </div>
-      <div class="linha item">
-        <div class="textos">
           <span>Abertura</span>
-          <span class="suave">Toca todos os áudios desta pasta, em ordem, antes de qualquer outra coisa. Com abertura, entra no ar sozinho.</span>
+          <span class="suave">Com pasta escolhida, o programa entra no ar sozinho ao abrir: toca todos os áudios desta pasta, em ordem, e segue a programação. Sem pasta, abre parado.</span>
           <span class="reticencias suave">{r.pasta_abertura ?? "Sem abertura"}</span>
         </div>
         {#if r.pasta_abertura}
@@ -340,15 +331,6 @@
           </button>
         {/if}
         <button class="botao" onclick={pastaAbertura}><Icone nome="folderOpen" tamanho={16} /> Trocar</button>
-      </div>
-      <div class="linha item">
-        <div class="textos">
-          <span>Abrir em tela cheia</span>
-          <span class="suave">O programa já abre ocupando a tela toda. Para entrar ou sair na hora: botão no topo ou tecla F11.</span>
-        </div>
-        <button class="chave" class:on={r.abrir_tela_cheia} onclick={() => api.definirAbrirTelaCheia(!r.abrir_tela_cheia)} aria-label="Abrir em tela cheia">
-          <span></span>
-        </button>
       </div>
     </section>
 

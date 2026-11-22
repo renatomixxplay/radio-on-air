@@ -147,6 +147,8 @@ pub struct Estado {
     ducking_adiado: Option<DuckingAdiado>,
     /// Conta os fins de ducking: a troca marcada só vale se for a última.
     vez_ducking: u64,
+    /// Conta os fades de troca: a garantia de volta do volume só vale se for o último.
+    vez_fade: u64,
     /// A fala acabou e a troca para a próxima está marcada: sem vinheta até lá.
     trocando_pos_ducking: bool,
     prox_id: u64,
@@ -261,10 +263,8 @@ struct Retrato {
     pasta_musicas: Option<String>,
     /// Pastas do painel "Pastas", em ordem alfabética.
     pastas: Vec<Pasta>,
-    tocar_ao_abrir: bool,
     pasta_abertura: Option<String>,
     encerramento: config::Encerramento,
-    abrir_tela_cheia: bool,
     vinheta_entre_musicas: bool,
     /// Tem senha definida.
     protegido: bool,
@@ -328,10 +328,8 @@ impl Estado {
                 v.sort_by(|a, b| ordem::natural(&a.nome, &b.nome));
                 v
             },
-            tocar_ao_abrir: self.config.tocar_ao_abrir,
             pasta_abertura: caminho(&self.config.pasta_abertura),
             encerramento: self.config.encerramento.clone(),
-            abrir_tela_cheia: self.config.abrir_tela_cheia,
             vinheta_entre_musicas: self.config.vinheta_entre_musicas,
             protegido: self.config.senha_hash.is_some(),
             bloqueios: self.config.bloqueios.clone(),
@@ -1009,13 +1007,21 @@ fn iniciar_relogio(app: AppHandle, estado: Compartilhado) {
     });
 }
 
-/// Abaixa a música até zero em 3 s, passa para a próxima e volta o volume.
+/// Abaixa a música até zero em 3 s e passa para a próxima.
 /// O volume do fade vale antes do crossfade (`vol_troca`), então o fim da
-/// música que sai continua baixo enquanto a próxima entra.
+/// música que sai continua baixo enquanto a próxima entra. Quem volta o
+/// volume ao normal é o motor, quando a próxima faixa começa (voltar aqui,
+/// logo depois do pulo, fazia o último pedaço da música sair alto).
 /// `pos_ducking`: é a troca depois do ducking (descarta a vinheta que esperava).
 fn fade_e_proxima(app: AppHandle, estado: Compartilhado, pos_ducking: bool) {
     registro::anotar(format!("fade de 3 s começou ({})", if pos_ducking { "depois do ducking" } else { "lista ou link" }));
     std::thread::spawn(move || {
+        // Aqui dentro: quem chama já está com o estado travado.
+        let vez = {
+            let mut e = travar(&estado);
+            e.vez_fade += 1;
+            e.vez_fade
+        };
         const PASSOS: u32 = 15;
         for i in 1..=PASSOS {
             std::thread::sleep(Duration::from_millis(200));
@@ -1028,8 +1034,19 @@ fn fade_e_proxima(app: AppHandle, estado: Compartilhado, pos_ducking: bool) {
         registro::anotar("fade terminou: pula a música no motor");
         if let Some(m) = &e.motor {
             let _ = m.esvaziar_e_pular();
-            let _ = m.volume_troca(1.0);
         }
+        // Garantia: se a próxima faixa demorar a começar (ou entrar só o link),
+        // o volume volta ao normal 5 s depois. A faixa que saiu já acabou.
+        let estado_garantia = estado.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(5));
+            let e = travar(&estado_garantia);
+            if e.vez_fade == vez {
+                if let Some(m) = &e.motor {
+                    let _ = m.volume_troca(1.0);
+                }
+            }
+        });
         if pos_ducking {
             // Como no Passar: vai direto para a próxima, sem a vinheta que esperava.
             // (Só aqui: no link, a "vinheta" pendente é a abertura, que fica.)
@@ -1681,37 +1698,6 @@ fn definir_vinheta_entre_musicas(app: AppHandle, estado: State<Compartilhado>, v
     Ok(())
 }
 
-#[tauri::command]
-fn definir_abrir_tela_cheia(app: AppHandle, estado: State<Compartilhado>, valor: bool) -> Result<(), String> {
-    let mut e = travar(&estado);
-    e.config.abrir_tela_cheia = valor;
-    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
-    emitir(&app, &e);
-    Ok(())
-}
-
-/// Botão do topo e tecla F11: entra ou sai da tela cheia. Devolve como ficou.
-#[tauri::command]
-fn alternar_tela_cheia(janela: tauri::WebviewWindow) -> bool {
-    let nova = !janela.is_fullscreen().unwrap_or(false);
-    let _ = janela.set_fullscreen(nova);
-    nova
-}
-
-#[tauri::command]
-fn tela_cheia_agora(janela: tauri::WebviewWindow) -> bool {
-    janela.is_fullscreen().unwrap_or(false)
-}
-
-#[tauri::command]
-fn definir_tocar_ao_abrir(app: AppHandle, estado: State<Compartilhado>, valor: bool) -> Result<(), String> {
-    let mut e = travar(&estado);
-    e.config.tocar_ao_abrir = valor;
-    e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
-    emitir(&app, &e);
-    Ok(())
-}
-
 /// Pasta da abertura (`None` = sem abertura).
 #[tauri::command]
 fn abertura_definir(app: AppHandle, estado: State<Compartilhado>, pasta: Option<String>) -> Result<(), String> {
@@ -2165,11 +2151,6 @@ pub fn run() {
             let agenda = agenda::carregar(&dir);
             let rodizio = Rodizio::carregar(&dir);
             let lista_ativa = agenda::lista_vigente(&agenda);
-            if config.abrir_tela_cheia {
-                if let Some(janela) = app.get_webview_window("main") {
-                    let _ = janela.set_fullscreen(true);
-                }
-            }
             let estado: Compartilhado = Arc::new(Mutex::new(Estado {
                 dir,
                 config: config.clone(),
@@ -2178,8 +2159,8 @@ pub fn run() {
                 procurando_musicas: false,
                 fila: vec![],
                 tocando: None,
-                // Com abertura, entra no ar sozinho mesmo sem "Entrar no ar ao abrir".
-                no_ar: config.tocar_ao_abrir || config.pasta_abertura.is_some(),
+                // Com pasta de abertura, entra no ar sozinho ao abrir; sem, abre parado.
+                no_ar: config.pasta_abertura.is_some(),
                 pausado: false,
                 saida_parada: false,
                 repetir: false,
@@ -2195,6 +2176,7 @@ pub fn run() {
                 repetir_auto: false,
                 ducking_adiado: None,
                 vez_ducking: 0,
+                vez_fade: 0,
                 trocando_pos_ducking: false,
                 prox_id: 0,
                 motor: None,
@@ -2254,12 +2236,8 @@ pub fn run() {
             previa_ir,
             pasta_adicionar,
             pasta_remover,
-            definir_tocar_ao_abrir,
             abertura_definir,
             encerramento_definir,
-            definir_abrir_tela_cheia,
-            alternar_tela_cheia,
-            tela_cheia_agora,
             senha_conferir,
             senha_definir,
             bloqueios_definir,
