@@ -126,16 +126,13 @@ jobs:
           path: saida/*.deb
           if-no-files-found: error
 
+  # Monta e assina o repositório apt e entrega o site ao GitHub Pages.
   publicar:
     needs: instalador
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: read
       pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -188,8 +185,24 @@ jobs:
         with:
           path: site
 
+  # Põe o site no ar. Fica num job separado (como o modelo oficial do GitHub):
+  # logo depois do envio, no mesmo job, o GitHub às vezes ainda não achava o
+  # pacote ("No artifacts named github-pages were found") e a versão não saía.
+  pagina:
+    needs: publicar
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - uses: actions/deploy-pages@v4
         id: deploy
+
+      - uses: actions/checkout@v4
 
       # A versão já está publicada: se a etiqueta falhar (por exemplo, o arquivo
       # do workflow mudou no main durante o build), só avisa, não derruba.
