@@ -8,6 +8,7 @@ mod ordem;
 mod placas;
 mod registro;
 mod sistema;
+mod youtube;
 
 use agenda::{Agendamento, ModoLista, Rodizio, TipoAgenda};
 use biblioteca::{Biblioteca, CantorDto, FaixaDto};
@@ -121,7 +122,8 @@ pub struct Estado {
     pausado: bool,
     /// A saída do motor foi desligada pelo botão Parar.
     saida_parada: bool,
-    /// Botão repetir: a música atual toca de novo no fim.
+    /// Botão repetir: a música atual toca de novo no fim. Vale só para ela:
+    /// o Próximo (ou outra faixa entrando) desliga.
     repetir: bool,
     /// A repetição já foi entregue ao motor.
     repeticao_enviada: bool,
@@ -261,6 +263,8 @@ struct Retrato {
     carregando: bool,
     procurando_musicas: bool,
     pasta_musicas: Option<String>,
+    /// Onde ficam as músicas baixadas do YouTube.
+    pasta_youtube: Option<String>,
     /// Pastas do painel "Pastas", em ordem alfabética.
     pastas: Vec<Pasta>,
     pasta_abertura: Option<String>,
@@ -315,6 +319,7 @@ impl Estado {
             carregando: self.carregando,
             procurando_musicas: self.procurando_musicas,
             pasta_musicas: caminho(&self.config.pasta_musicas),
+            pasta_youtube: caminho(&self.config.pasta_youtube),
             pastas: {
                 let mut v: Vec<Pasta> = self
                     .config
@@ -624,6 +629,11 @@ fn ao_evento_motor(app: &AppHandle, estado: &Compartilhado, geracao: u64, ev: Ev
         EventoMotor::Faixa(caminho, toca) => {
             let repeticao = e.repeticao_enviada && e.tocando.as_ref().is_some_and(|t| t.item.caminho == caminho);
             e.repeticao_enviada = false;
+            // O Repetir vale só para a faixa em que foi ligado: entrou outra, desliga.
+            if !repeticao && e.repetir {
+                registro::anotar("programa: outra faixa entrou, desliga o Repetir");
+                e.repetir = false;
+            }
             let pend = e.pendentes.iter().position(|i| i.travado && i.caminho == caminho);
             let pos = e.fila.iter().position(|i| i.travado && i.caminho == caminho);
             let origem = match (repeticao, pend, pos) {
@@ -1933,6 +1943,8 @@ fn proxima(app: AppHandle, estado: State<Compartilhado>) {
     if let Some(m) = &e.motor {
         let _ = m.esvaziar_e_pular();
     }
+    // O Repetir vale só para a faixa atual: passar desliga.
+    e.repetir = false;
     e.repeticao_enviada = false;
     e.trocando_pos_ducking = false;
     e.destravar_tudo();
@@ -2120,13 +2132,20 @@ fn definir_pasta(app: AppHandle, estado: State<Compartilhado>, qual: String, cam
         let p = Some(PathBuf::from(&caminho));
         match qual.as_str() {
             "musicas" => e.config.pasta_musicas = p,
+            "youtube" => e.config.pasta_youtube = p,
             _ => return Err("pasta desconhecida".into()),
         }
         e.config.salvar(&e.dir).map_err(|err| err.to_string())?;
         emitir(&app, &e);
     }
-    if qual == "musicas" {
-        carregar_biblioteca(app, compartilhado, true);
+    match qual.as_str() {
+        "musicas" => carregar_biblioteca(app, compartilhado, true),
+        // Já deixa o yt-dlp pronto para a primeira pesquisa.
+        "youtube" => {
+            let dir = travar(&compartilhado).dir.clone();
+            std::thread::spawn(move || youtube::atualizar(&dir, youtube::UM_DIA));
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -2134,6 +2153,81 @@ fn definir_pasta(app: AppHandle, estado: State<Compartilhado>, qual: String, cam
 #[tauri::command]
 fn atualizar_musicas(app: AppHandle, estado: State<Compartilhado>) {
     carregar_biblioteca(app, estado.inner().clone(), true);
+}
+
+fn pasta_youtube(e: &Estado) -> Result<(PathBuf, PathBuf), String> {
+    let pasta = e.config.pasta_youtube.clone().ok_or("Escolha a pasta do YouTube nas Configurações.")?;
+    Ok((e.dir.clone(), pasta))
+}
+
+/// Músicas já baixadas na pasta do YouTube (A a Z).
+#[tauri::command]
+fn youtube_musicas(estado: State<Compartilhado>) -> Vec<FaixaDto> {
+    let pasta = travar(&estado).config.pasta_youtube.clone();
+    pasta.map(|p| youtube::musicas_da_pasta(&p)).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn youtube_pesquisar(estado: State<'_, Compartilhado>, termo: String) -> Result<Vec<youtube::Video>, String> {
+    let compartilhado = estado.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (dir, pasta) = pasta_youtube(&travar(&compartilhado))?;
+        let mut videos = youtube::pesquisar(&dir, &termo)?;
+        // Repetida é só o mesmo vídeo: os já baixados vêm com o arquivo.
+        let baixados = youtube::baixados(&pasta);
+        for v in &mut videos {
+            v.caminho = baixados.get(&v.id).map(|p| p.to_string_lossy().into_owned());
+        }
+        Ok(videos)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Baixa, converte e salva na pasta do YouTube. Devolve o arquivo. Vídeo
+/// já baixado não baixa de novo: devolve o arquivo que já existe.
+#[tauri::command]
+async fn youtube_baixar(
+    app: AppHandle,
+    estado: State<'_, Compartilhado>,
+    id: String,
+    titulo: String,
+    canal: String,
+) -> Result<String, String> {
+    let compartilhado = estado.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (dir, pasta) = pasta_youtube(&travar(&compartilhado))?;
+        if let Some(p) = youtube::baixados(&pasta).get(&id) {
+            return Ok(p.to_string_lossy().into_owned());
+        }
+        let (app2, id2) = (app.clone(), id.clone());
+        let destino = youtube::baixar(&dir, &pasta, &id, &titulo, &canal, move |pct| {
+            let _ = app2.emit("youtube_progresso", (&id2, pct));
+        })?;
+        // Entra na busca na hora, sem esperar o vigia da pasta.
+        let mut e = travar(&compartilhado);
+        e.bib.atualizar_caminho(&destino);
+        emitir(&app, &e);
+        Ok(destino.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Uma vez por dia (com pasta do YouTube escolhida) o yt-dlp se atualiza.
+fn iniciar_atualizacao_youtube(estado: Compartilhado) {
+    std::thread::spawn(move || {
+        loop {
+            let (dir, ligado) = {
+                let e = travar(&estado);
+                (e.dir.clone(), e.config.pasta_youtube.is_some())
+            };
+            if ligado {
+                youtube::atualizar(&dir, youtube::UM_DIA);
+            }
+            std::thread::sleep(Duration::from_secs(3600));
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2204,6 +2298,7 @@ pub fn run() {
             iniciar_captura(&handle, &estado, &mut travar(&estado));
             iniciar_limpeza_gravacoes(estado.clone());
             iniciar_virada_cartucheira(handle.clone(), estado.clone());
+            iniciar_atualizacao_youtube(estado.clone());
             iniciar_gravador_indice(estado);
             Ok(())
         })
@@ -2250,6 +2345,9 @@ pub fn run() {
             audio_definir,
             gravacao_definir,
             transmissao_definir,
+            youtube_musicas,
+            youtube_pesquisar,
+            youtube_baixar,
         ])
         .build(tauri::generate_context!())
         .expect("erro ao abrir o Radio On Air")

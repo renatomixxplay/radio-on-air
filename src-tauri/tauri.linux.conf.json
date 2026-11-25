@@ -12,7 +12,11 @@
         "depends": [
           "liquidsoap (>= 2.4.6)",
           "pulseaudio-utils",
-          "pipewire-pulse | pulseaudio"
+          "pipewire-pulse | pulseaudio",
+          "ffmpeg",
+          "python3",
+          "nodejs",
+          "curl"
         ],
         "files": {
           "/etc/apt/sources.list.d/radio-on-air.sources": "linux/radio-on-air.sources",

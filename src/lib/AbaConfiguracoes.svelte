@@ -118,6 +118,11 @@
   let msgSenha = $state("");
   let erroSenha = $state(false);
 
+  async function trocarPastaYoutube() {
+    const p = await open({ directory: true, multiple: false, title: "Pasta das músicas do YouTube" });
+    if (typeof p === "string") await api.definirPasta("youtube", p);
+  }
+
   async function trocarPastaMusicas() {
     const p = await open({ directory: true, multiple: false, title: "Pasta de músicas" });
     if (typeof p === "string") await api.definirPasta("musicas", p);
@@ -382,6 +387,14 @@
           <span class="suave">Use se alguma música nova não apareceu na busca.</span>
         </div>
         <button class="botao" onclick={api.atualizarMusicas}><Icone nome="refresh" tamanho={16} /> Atualizar</button>
+      </div>
+      <div class="linha item">
+        <div class="textos">
+          <span>Pasta do YouTube</span>
+          <span class="suave">Onde ficam as músicas baixadas pela pesquisa no YouTube. Dentro da pasta de músicas, elas aparecem também na busca normal.</span>
+          <span class="reticencias suave">{r.pasta_youtube ?? "Nenhuma pasta escolhida"}</span>
+        </div>
+        <button class="botao" onclick={trocarPastaYoutube}><Icone nome="folderOpen" tamanho={16} /> Trocar</button>
       </div>
       <div class="linha item">
         <div class="textos">

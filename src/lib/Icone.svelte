@@ -36,11 +36,13 @@
   import aovivo from "@tabler/icons/outline/broadcast.svg?raw";
   import gravar from "@tabler/icons/outline/player-record.svg?raw";
   import transmitir from "@tabler/icons/outline/world.svg?raw";
+  import youtube from "@tabler/icons/outline/brand-youtube.svg?raw";
+  import baixar from "@tabler/icons/outline/download.svg?raw";
 
   const icones = {
     antenna, play, pause, stop, skip, music, list, microphone, grid, folder, folderOpen,
     search, plus, menos, x, refresh, calendar, settings, grip, alert, voltar, avancar, repetir, lixeira, fone, ducking, vinheta, abrir, megafone, relogio, cadeado, aberto, aovivo, gravar, transmitir,
-    texto,
+    texto, youtube, baixar,
     cantor: ducking,
   };
   export type NomeIcone = keyof typeof icones;

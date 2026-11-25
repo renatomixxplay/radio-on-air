@@ -1,28 +1,30 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, type Cantor, type Faixa, type Previa } from "./api";
+  import { api, type Cantor, type Faixa, type Previa, type VideoYT } from "./api";
   import Icone from "./Icone.svelte";
 
   let {
     pasta,
+    pastaYoutube,
     total,
     carregando,
     previa,
     previaDecorrido,
   }: {
     pasta: string | null;
+    pastaYoutube: string | null;
     total: number;
     carregando: boolean;
     previa: Previa | null;
     previaDecorrido: number;
   } = $props();
 
-  type Tipo = "cantor" | "texto";
-  /** Pesquisa por cantor (padrão) ou por texto (música, artista ou pasta). */
+  type Tipo = "cantor" | "texto" | "youtube";
+  /** Pesquisa por cantor (padrão), por texto (música, artista ou pasta) ou no YouTube. */
   let tipo = $state<Tipo>("cantor");
   /** O que foi digitado em cada tipo de pesquisa (cada um guarda o seu). */
-  let termos = $state({ cantor: "", texto: "" });
+  let termos = $state({ cantor: "", texto: "", youtube: "" });
   let resultado = $state<Faixa[]>([]);
   let cantores = $state<Cantor[]>([]);
   /** Cantor clicado: o nome fica na busca e a lista mostra as músicas dele. */
@@ -35,6 +37,89 @@
   let alturaLista = $state(0);
   /** Onde estava a lista de cantores antes de abrir um (para voltar no mesmo ponto). */
   let rolagemGuardada = 0;
+
+  // ─── YouTube ───
+  let videos = $state<VideoYT[]>([]);
+  let pesquisandoYT = $state(false);
+  /** Já apertou Enter: a lista mostra os vídeos (apagar o texto volta para a pasta). */
+  let pesquisouYT = $state(false);
+  /** Músicas já baixadas na pasta do YouTube (A a Z): aparecem antes de pesquisar. */
+  let musicasYT = $state<Faixa[]>([]);
+  /** Muda depois de cada download, para reler a pasta. */
+  let releituraYT = $state(0);
+  const verVideos = $derived(pesquisandoYT || pesquisouYT);
+
+  $effect(() => {
+    if (tipo !== "youtube" || !pastaYoutube) return;
+    total;
+    releituraYT;
+    api.youtubeMusicas().then((m) => (musicasYT = m));
+  });
+  let erroBusca = $state("");
+  /** Baixando agora: id → andamento (0 a 100; 100 = convertendo). */
+  let baixando = $state<Record<string, number>>({});
+  /** Baixados nesta sessão: id → arquivo. */
+  let prontos = $state<Record<string, string>>({});
+  let errosYT = $state<Record<string, string>>({});
+  /** Vídeo da lista que pôs a pré-escuta para tocar: só a linha clicada acende. */
+  let ouvindoYT = $state<string | null>(null);
+
+  /** A pré-escuta está tocando este arquivo (e, nos vídeos, a partir desta linha). */
+  function tocandoAqui(caminho: string, id?: string): boolean {
+    return previa?.caminho === caminho && (!id || ouvindoYT === id);
+  }
+
+
+
+  $effect(() => {
+    const parar = api.aoProgressoYoutube((id, pct) => {
+      if (baixando[id] !== undefined) baixando[id] = pct;
+    });
+    return () => void parar.then((f) => f());
+  });
+
+  /** A pesquisa no YouTube só sai com Enter (cada uma leva alguns segundos). */
+  async function pesquisarYT() {
+    const termo = termos.youtube.trim();
+    if (!termo || pesquisandoYT) return;
+    pesquisandoYT = true;
+    pesquisouYT = true;
+    erroBusca = "";
+    try {
+      videos = await api.youtubePesquisar(termo);
+    } catch (e) {
+      videos = [];
+      erroBusca = String(e);
+    } finally {
+      pesquisandoYT = false;
+    }
+    rolarPara(0);
+  }
+
+  /** 🎧 e ⬇ fazem o mesmo: baixam, convertem e salvam. O 🎧 já toca na pré-escuta. */
+  async function baixarVideo(v: VideoYT, ouvir: boolean) {
+    if (baixando[v.id] !== undefined) return;
+    delete errosYT[v.id];
+    baixando[v.id] = 0;
+    try {
+      const caminho = await api.youtubeBaixar(v);
+      prontos[v.id] = caminho;
+      releituraYT++;
+      if (ouvir) {
+        ouvindoYT = v.id;
+        api.previaTocar(caminho);
+      }
+    } catch (e) {
+      errosYT[v.id] = String(e);
+    } finally {
+      delete baixando[v.id];
+    }
+  }
+
+  async function escolherPastaYoutube() {
+    const p = await open({ directory: true, multiple: false, title: "Pasta das músicas do YouTube" });
+    if (typeof p === "string") await api.definirPasta("youtube", p);
+  }
 
   async function pesquisar() {
     resultado = await api.buscar(termos.texto);
@@ -86,6 +171,11 @@
   const inicio = $derived(Math.max(0, Math.floor(rolagem / ALTURA_CANTOR) - 8));
   const fim = $derived(Math.min(filtrados.length, Math.ceil((rolagem + alturaLista) / ALTURA_CANTOR) + 8));
 
+  // As músicas da pasta do YouTube também podem ser milhares: mesma coisa.
+  const ALTURA_FAIXA = 56;
+  const inicioYT = $derived(Math.max(0, Math.floor(rolagem / ALTURA_FAIXA) - 8));
+  const fimYT = $derived(Math.min(musicasYT.length, Math.ceil((rolagem + alturaLista) / ALTURA_FAIXA) + 8));
+
   async function rolarPara(y: number) {
     await tick();
     if (lista) lista.scrollTop = y;
@@ -115,6 +205,12 @@
 
   function digitar(valor: string) {
     termos[tipo] = valor;
+    // Apagou o texto do YouTube: volta para as músicas da pasta.
+    if (tipo === "youtube" && !valor.trim()) {
+      pesquisouYT = false;
+      videos = [];
+      erroBusca = "";
+    }
     escolhido = null;
     rolarPara(0);
   }
@@ -132,7 +228,13 @@
   }
 
   const contagem = $derived(
-    carregando
+    tipo === "youtube"
+      ? !verVideos
+        ? `${musicasYT.length.toLocaleString("pt-BR")} músicas`
+        : !pesquisandoYT && videos.length
+          ? `${videos.length} vídeos`
+          : ""
+      : carregando
       ? "lendo pastas…"
       : tipo === "texto"
         ? total.toLocaleString("pt-BR")
@@ -142,40 +244,93 @@
   );
 </script>
 
-{#snippet linhaFaixa(f: Faixa, comArtista: boolean)}
+{#snippet linhaFaixa(f: Faixa, altura?: number)}
   <!-- Clicar para pular só faz sentido com mouse; os botões da linha já são acessíveis pelo teclado. -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
   <div
     class="linha faixa"
-    class:ouvindo-linha={previa?.caminho === f.caminho}
+    class:ouvindo-linha={tocandoAqui(f.caminho)}
+    style:height={altura ? `${altura}px` : undefined}
     onclick={(e) => pular(e, f.caminho)}
     role="listitem"
   >
     <div class="textos">
       <span class="reticencias musica">{f.musica}</span>
-      {#if comArtista}<span class="reticencias suave">{f.artista}</span>{/if}
+      {#if f.artista}<span class="reticencias suave">{f.artista}</span>{/if}
     </div>
-    <button
-      class="acao-linha ouvir"
-      class:ouvindo={previa?.caminho === f.caminho}
-      aria-label={previa?.caminho === f.caminho ? "Parar pré-escuta" : "Pré-escuta"}
-      title={previa?.caminho === f.caminho ? "Parar pré-escuta" : "Pré-escuta"}
-      onclick={(e) => {
-        e.stopPropagation();
-        previa?.caminho === f.caminho ? api.previaParar() : api.previaTocar(f.caminho);
-      }}
-    >
-      <Icone nome={previa?.caminho === f.caminho ? "stop" : "fone"} tamanho={18} />
-    </button>
-    {#if previa?.caminho === f.caminho}
-      <span class="mini" style:width="{previa.duracao ? Math.min(100, (previaDecorrido / previa.duracao) * 100) : 0}%"></span>
+    {@render botoesArquivo(f.caminho)}
+  </div>
+{/snippet}
+
+<!-- 🎧 (pré-escuta, com a barrinha do tempo) e ➕ (pôr na fila) de um arquivo do computador. -->
+{#snippet botoesArquivo(caminho: string, id?: string)}
+  {@const aqui = tocandoAqui(caminho, id)}
+  <button
+    class="acao-linha ouvir"
+    class:ouvindo={aqui}
+    aria-label={aqui ? "Parar pré-escuta" : "Pré-escuta"}
+    title={aqui ? "Parar pré-escuta" : "Pré-escuta"}
+    onclick={(e) => {
+      e.stopPropagation();
+      if (aqui) {
+        api.previaParar();
+      } else {
+        ouvindoYT = id ?? null;
+        api.previaTocar(caminho);
+      }
+    }}
+  >
+    <Icone nome={aqui ? "stop" : "fone"} tamanho={18} />
+  </button>
+  {#if aqui && previa}
+    <span class="mini" style:width="{previa.duracao ? Math.min(100, (previaDecorrido / previa.duracao) * 100) : 0}%"></span>
+  {/if}
+  <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={(e) => {
+      e.stopPropagation();
+      api.filaAdicionar(caminho, "musica");
+    }}>
+    <Icone nome="plus" tamanho={18} />
+  </button>
+{/snippet}
+
+{#snippet linhaVideo(v: VideoYT)}
+  {@const caminho = prontos[v.id] ?? v.caminho}
+  {@const pct = baixando[v.id]}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+  <div
+    class="linha faixa"
+    class:ouvindo-linha={!!caminho && tocandoAqui(caminho, v.id)}
+    onclick={(e) => caminho && pular(e, caminho)}
+    role="listitem"
+    title={caminho ? undefined : `Salva como: ${v.nome}`}
+  >
+    <div class="textos">
+      <span class="reticencias musica">{v.titulo}</span>
+      {#if errosYT[v.id]}
+        <span class="reticencias erro" title={errosYT[v.id]}>{errosYT[v.id]}</span>
+      {:else if v.canal}
+        <span class="reticencias suave">{v.canal}</span>
+      {/if}
+    </div>
+    {#if pct !== undefined}
+      <span class="andamento">{pct < 100 ? `${pct}%` : "convertendo…"}</span>
+      <span class="mini" style:width="{pct}%"></span>
+    {:else if caminho}
+      {@render botoesArquivo(caminho, v.id)}
+    {:else}
+      <button class="acao-linha ouvir" aria-label="Baixar e ouvir" title="Baixar e ouvir" onclick={(e) => {
+          e.stopPropagation();
+          baixarVideo(v, true);
+        }}>
+        <Icone nome="fone" tamanho={18} />
+      </button>
+      <button class="acao-linha ouvir" aria-label="Baixar" title="Baixar" onclick={(e) => {
+          e.stopPropagation();
+          baixarVideo(v, false);
+        }}>
+        <Icone nome="baixar" tamanho={18} />
+      </button>
     {/if}
-    <button class="acao-linha adicionar" aria-label="Pôr na fila" title="Pôr na fila" onclick={(e) => {
-        e.stopPropagation();
-        api.filaAdicionar(f.caminho, "musica");
-      }}>
-      <Icone nome="plus" tamanho={18} />
-    </button>
   </div>
 {/snippet}
 
@@ -197,9 +352,10 @@
         <input
           value={escolhido ? escolhido.nome : termos[tipo]}
           oninput={(e) => digitar(e.currentTarget.value)}
+          onkeydown={(e) => tipo === "youtube" && e.key === "Enter" && pesquisarYT()}
           onfocus={voltarAosCantores}
           onclick={voltarAosCantores}
-          placeholder={tipo === "cantor" ? "Cantor" : "Música ou artista"}
+          placeholder={tipo === "cantor" ? "Cantor" : tipo === "texto" ? "Música ou artista" : "Pesquisar no YouTube e Enter"}
           spellcheck="false"
         />
       </label>
@@ -224,12 +380,51 @@
         >
           <Icone nome="texto" tamanho={20} />
         </button>
+        <button
+          class="tipo"
+          class:ativo={tipo === "youtube"}
+          aria-pressed={tipo === "youtube"}
+          aria-label="Pesquisa no YouTube"
+          title="Pesquisa no YouTube"
+          onclick={() => trocarTipo("youtube")}
+        >
+          <Icone nome="youtube" tamanho={20} />
+        </button>
       </div>
     </div>
     <div class="lista" bind:this={lista} bind:clientHeight={alturaLista} onscroll={() => (rolagem = lista?.scrollTop ?? 0)}>
-      {#if tipo === "texto"}
+      {#if tipo === "youtube"}
+        {#if !pastaYoutube}
+          <div class="vazio">
+            Escolha a pasta onde as músicas do YouTube vão ficar.<br />
+            <button class="acao" onclick={escolherPastaYoutube}><Icone nome="folderOpen" tamanho={14} /> Escolher pasta</button>
+          </div>
+        {:else if !verVideos}
+          {#if musicasYT.length}
+            <div class="rolo" style:height="{musicasYT.length * ALTURA_FAIXA}px">
+              <div class="visiveis" style:transform="translateY({inicioYT * ALTURA_FAIXA}px)">
+                {#each musicasYT.slice(inicioYT, fimYT) as f (f.caminho)}
+                  {@render linhaFaixa(f, ALTURA_FAIXA)}
+                {/each}
+              </div>
+            </div>
+          {:else}
+            <div class="vazio">Nenhuma música baixada ainda.<br />Digite o nome da música e aperte Enter.</div>
+          {/if}
+        {:else if pesquisandoYT}
+          <div class="vazio">Pesquisando no YouTube…</div>
+        {:else if erroBusca}
+          <div class="vazio erro">{erroBusca}</div>
+        {:else}
+          {#each videos as v (v.id)}
+            {@render linhaVideo(v)}
+          {:else}
+            <div class="vazio">Nenhum vídeo encontrado.</div>
+          {/each}
+        {/if}
+      {:else if tipo === "texto"}
         {#each resultado as f (f.caminho)}
-          {@render linhaFaixa(f, true)}
+          {@render linhaFaixa(f)}
         {:else}
           <div class="vazio">{carregando ? "Lendo as pastas…" : "Nenhuma música encontrada"}</div>
         {/each}
@@ -238,7 +433,7 @@
         {/if}
       {:else if escolhido}
         {#each musicasCantor as f (f.caminho)}
-          {@render linhaFaixa(f, false)}
+          {@render linhaFaixa(f)}
         {/each}
       {:else if filtrados.length}
         <div class="rolo" style:height="{filtrados.length * ALTURA_CANTOR}px">
@@ -325,11 +520,15 @@
     align-items: center;
     justify-content: center;
     color: var(--texto-2);
-    border-radius: 0 8px 8px 0;
+    border-radius: 0;
+    margin-left: -0.5px;
   }
   .tipo:first-child {
     border-radius: 8px 0 0 8px;
-    margin-right: -0.5px;
+    margin-left: 0;
+  }
+  .tipo:last-child {
+    border-radius: 0 8px 8px 0;
   }
   .tipo.ativo {
     color: var(--azul-claro);
@@ -419,6 +618,20 @@
     color: #fff;
     background: #238636;
     border-color: #2ea043;
+  }
+  /* Mesma altura dos botões: a linha não afina enquanto baixa. */
+  .andamento {
+    flex: none;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    color: var(--texto-2);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  .erro {
+    color: #ff9b9b;
+    font-size: 13px;
   }
   .acao {
     margin-top: 10px;

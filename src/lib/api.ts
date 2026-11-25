@@ -39,6 +39,8 @@ export interface Retrato {
   /** Ao abrir: procurando músicas novas na pasta (a rádio espera, até 15 s). */
   procurando_musicas: boolean;
   pasta_musicas: string | null;
+  /** Onde ficam as músicas baixadas do YouTube. */
+  pasta_youtube: string | null;
   pastas: Pasta[];
   /** Pasta da abertura: toca tudo ao abrir o programa (null = sem abertura). */
   pasta_abertura: string | null;
@@ -171,6 +173,18 @@ export interface Previa {
   espera: number;
 }
 
+/** Vídeo da pesquisa no YouTube. */
+export interface VideoYT {
+  id: string;
+  titulo: string;
+  canal: string;
+  duracao: number;
+  /** Nome com que vai ser salvo: "Artista - Música". */
+  nome: string;
+  /** Já está no computador (não precisa baixar). */
+  caminho: string | null;
+}
+
 export interface Faixa {
   caminho: string;
   artista: string;
@@ -220,7 +234,7 @@ export const api = {
   cartucheiraAgendadaSalvar: (id: number, nome: string, inicio: string, fim: string) =>
     invoke<number>("cartucheira_agendada_salvar", { id, nome, inicio, fim }),
   cartucheiraAgendadaApagar: (id: number) => invoke<void>("cartucheira_agendada_apagar", { id }),
-  definirPasta: (qual: "musicas" | "programas", caminho: string) =>
+  definirPasta: (qual: "musicas" | "programas" | "youtube", caminho: string) =>
     invoke<void>("definir_pasta", { qual, caminho }),
   atualizarMusicas: () => invoke<void>("atualizar_musicas"),
   pastaAdicionar: (caminho: string) => invoke<void>("pasta_adicionar", { caminho }),
@@ -248,6 +262,14 @@ export const api = {
   agendamentos: () => invoke<Agendamento[]>("agendamentos"),
   agendamentoSalvar: (ag: Agendamento) => invoke<Agendamento[]>("agendamento_salvar", { ag }),
   agendamentoRemover: (id: number) => invoke<Agendamento[]>("agendamento_remover", { id }),
+  /** Músicas já baixadas na pasta do YouTube (A a Z). */
+  youtubeMusicas: () => invoke<Faixa[]>("youtube_musicas"),
+  youtubePesquisar: (termo: string) => invoke<VideoYT[]>("youtube_pesquisar", { termo }),
+  /** Baixa, converte e salva; devolve o arquivo (ou o que já existia). */
+  youtubeBaixar: (v: VideoYT) => invoke<string>("youtube_baixar", { id: v.id, titulo: v.titulo, canal: v.canal }),
+  /** Andamento do download (0 a 100) de cada vídeo. */
+  aoProgressoYoutube: (fn: (id: string, pct: number) => void) =>
+    listen<[string, number]>("youtube_progresso", (e) => fn(e.payload[0], e.payload[1])),
   aoMudar: (fn: (r: Retrato) => void) => listen<Retrato>("estado", (e) => fn(e.payload)),
 };
 

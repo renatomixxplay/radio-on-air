@@ -145,6 +145,7 @@
       <div class="baixo">
         <Musicas
           pasta={r.pasta_musicas}
+          pastaYoutube={r.pasta_youtube}
           total={r.total_musicas}
           carregando={r.carregando}
           previa={previaPrograma ? null : r.previa}

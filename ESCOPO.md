@@ -92,7 +92,7 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
   - Botões só com ícone: **Ducking · Tocar/Pausar · Repetir · Passar** (sem Parar).
   - **Travados** (apagados, e o programa também ignora): com **comercial ou hora certa** tocando e durante o **ducking** (voz por cima, música repetindo e os 10 s até a troca), ficam travados **todos** — Ducking, Pausar, Repetir e Passar. Com o **link** (Voz do Brasil): Ducking, Repetir e Passar (Pausar continua). Sempre dá para **desligar** o que já estava ligado (Ducking, Repetir) e o **Tocar** de uma rádio pausada nunca trava.
   - **Ducking:** abaixa a música para 20% (rampa suave); a cartucheira não abaixa.
-  - **Repetir:** a música atual toca de novo no fim; a fila espera.
+  - **Repetir:** a música atual toca de novo no fim; a fila espera. Vale **só para a faixa em que foi ligado**: o **Passar** desliga, e se entrar outra faixa por qualquer motivo ele também desliga.
   - **Passar** não funciona durante comercial/hora certa (agendamento não se pula).
 - **Cartucheira:** 8 botões fixos; só toca (configuração na aba Cartucheira).
 - **Músicas:** dois botões ao lado da busca escolhem o tipo de pesquisa: **cantor** (microfone, padrão ao abrir) ou **texto** (abc). 🎧 pré-escuta e ➕ adicionar. Ícone de pasta troca a pasta de músicas.
@@ -134,6 +134,16 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 - Pasta de **lista** que o índice ainda não conhece (pasta nova) é lida **direto do disco**: a lista nunca cai no acervo todo por isso.
 - Duração lida do **cabeçalho** do arquivo só quando ele entra na fila (sem decodificar o áudio).
 - ✅ Linux com muitas subpastas: o instalador aumenta `fs.inotify.max_user_watches`.
+
+### 4.1 Pesquisa no YouTube 🧪
+
+- Terceiro botão na busca de Músicas (ícone do YouTube). Ao clicar, mostra as **músicas já baixadas** da pasta do YouTube, em **ordem alfabética** (lista que desenha só as linhas visíveis, como a de cantores: milhares sem pesar). Digitar **não filtra**; o **Enter** troca pelos resultados do YouTube e **apagar o texto** volta para a pasta. **Pesquisa por nome**, não por link; sai com **Enter**. Lista até **50** vídeos (título e, embaixo, o canal; sem duração); vídeos com mais de **30 minutos** nem aparecem.
+- 🎧 e ⬇ fazem o mesmo: **baixam só o áudio** (o vídeo nem vem), convertem e salvam. O 🎧 já toca na pré-escuta. Pronto, a linha ganha o ➕ (pôr na fila).
+- Conversão: MP3 128k estéreo 44,1 kHz, **volume igualado em -14 LUFS** (mede a música inteira, ganho exato + limitador só nos picos) e silêncio das pontas cortado. Artista e música vão nas tags.
+- Nome do arquivo limpo sozinho, sem editar: tira "(Clipe Oficial)", "[HD]", "Ao Vivo em…", hashtags, "/ letra /"; **toda palavra com maiúscula** ("Alberi Silva - Sou Feio Mais Sou Feliz"); título todo em caixa alta vira normal. Título "Música - Artista" com o artista igual ao canal é invertido; sem artista no título, usa o canal (sem "Oficial"/"VEVO").
+- **Sem repetidas, só pelo mesmo vídeo:** cada vídeo baixado fica anotado em `.youtube-baixados.txt` na pasta do YouTube; na pesquisa ele já aparece com ➕ e usa o arquivo do computador. Outro vídeo com o mesmo nome baixa normal e ganha número: `Artista - Música (2).mp3` (decisão do usuário: nada de comparar pelo nome).
+- **Configurações → Músicas → Pasta do YouTube** (obrigatória). Dentro da pasta de músicas, as baixadas aparecem também na busca normal.
+- **yt-dlp próprio:** o programa baixa o yt-dlp oficial (versão leve, 3 MB, roda com o Python do sistema) para a pasta de dados e o **atualiza sozinho uma vez por dia** (o do Debian envelhece e para de funcionar). O instalador pede `ffmpeg`, `python3`, `nodejs` (o YouTube exige um executor de JavaScript) e `curl`.
 
 ## 5. Fila ✅
 
@@ -213,6 +223,7 @@ Nada disso foi testado de ouvido ou clicando por completo:
 **No ar**
 - [ ] Ducking manual abaixa e sobe a música; cartucheira não abaixa junto.
 - [ ] Repetir: a música toca de novo; desligar volta para a fila.
+- [ ] Repetir ligado + Passar: o botão apaga e a próxima música NÃO repete.
 - [ ] Passar pula música, mas fica bloqueado durante comercial/hora certa.
 - [ ] Pré-escuta: 🎧 vira ■, barrinha anda, clicar na linha pula, ar continua normal.
 - [ ] Barra vermelha nos 10 s finais.

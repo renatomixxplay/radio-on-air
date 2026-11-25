@@ -14,6 +14,8 @@ pub struct Config {
     pub pasta_musicas: Option<PathBuf>,
     /// Pasta com uma subpasta por programa/locutor.
     pub pasta_programas: Option<PathBuf>,
+    /// Onde ficam as músicas baixadas do YouTube.
+    pub pasta_youtube: Option<PathBuf>,
     /// Arquivo de cada botão da cartucheira padrão (sempre 8 posições).
     pub cartucheira: Vec<Option<PathBuf>>,
     /// Cartucheiras com data de início e fim: no período, entram no lugar da padrão.
@@ -239,6 +241,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             pasta_musicas: None,
+            pasta_youtube: None,
             pasta_programas: None,
             cartucheira: vec![None; SLOTS_CARTUCHEIRA],
             cartucheiras_agendadas: vec![],
