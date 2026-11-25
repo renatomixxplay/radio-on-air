@@ -143,7 +143,8 @@ Todas as abas de configuração seguem o mesmo estilo: **título acima, cartões
 - Nome do arquivo limpo sozinho, sem editar: tira "(Clipe Oficial)", "[HD]", "Ao Vivo em…", hashtags, "/ letra /"; **toda palavra com maiúscula** ("Alberi Silva - Sou Feio Mais Sou Feliz"); título todo em caixa alta vira normal. Título "Música - Artista" com o artista igual ao canal é invertido; sem artista no título, usa o canal (sem "Oficial"/"VEVO").
 - **Sem repetidas, só pelo mesmo vídeo:** cada vídeo baixado fica anotado em `.youtube-baixados.txt` na pasta do YouTube; na pesquisa ele já aparece com ➕ e usa o arquivo do computador. Outro vídeo com o mesmo nome baixa normal e ganha número: `Artista - Música (2).mp3` (decisão do usuário: nada de comparar pelo nome).
 - **Configurações → Músicas → Pasta do YouTube** (obrigatória). Dentro da pasta de músicas, as baixadas aparecem também na busca normal.
-- **yt-dlp próprio:** o programa baixa o yt-dlp oficial (versão leve, 3 MB, roda com o Python do sistema) para a pasta de dados e o **atualiza sozinho uma vez por dia** (o do Debian envelhece e para de funcionar). O instalador pede `ffmpeg`, `python3`, `nodejs` (o YouTube exige um executor de JavaScript) e `curl`.
+- **yt-dlp próprio:** o programa baixa o yt-dlp oficial (versão leve, 3 MB, roda com o Python do sistema) para a pasta de dados na primeira pesquisa e o **atualiza sozinho uma vez por semana: sábado às 01:50** (antes de a rádio desligar às 02:00; leva ~2–5 s). Programa fechado nessa hora: fica para o sábado seguinte. (O do Debian envelhece e para de funcionar.)
+- **Limites de tempo:** a pesquisa desiste depois de **60 s** e o download (com a conversão) depois de **5 min**, com aviso na linha e sem deixar pedaço de arquivo. Nada disso derruba o programa nem mexe no que está no ar. O instalador pede `ffmpeg`, `python3`, `nodejs` (o YouTube exige um executor de JavaScript) e `curl`.
 
 ## 5. Fila ✅
 

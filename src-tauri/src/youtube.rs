@@ -2,7 +2,11 @@
 //!
 //! O yt-dlp do Debian envelhece rápido (o YouTube muda e ele para de baixar).
 //! Por isso o programa guarda a PRÓPRIA cópia, a oficial do projeto, na pasta
-//! de dados, e pede a ela para se atualizar uma vez por dia.
+//! de dados, e pede a ela para se atualizar uma vez por semana: sábado às
+//! 01:50 (antes de a rádio desligar às 02:00).
+//!
+//! Nada aqui pode prender o programa: a pesquisa desiste depois de 60 s e o
+//! download (com a conversão) depois de 5 min.
 //!
 //! Só o áudio é baixado (o vídeo nem vem). O áudio cru vira MP3 com o volume
 //! igualado e o silêncio das pontas cortado; depois é apagado.
@@ -15,12 +19,12 @@ use deunicode::deunicode;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Quantos vídeos a pesquisa pede ao YouTube.
 pub const QUANTOS: usize = 50;
@@ -32,7 +36,12 @@ const BITRATE: &str = "128k";
 /// Abaixo disso, nas pontas, é silêncio (cortado).
 const SILENCIO_DB: i32 = -50;
 const REGISTRO: &str = ".youtube-baixados.txt";
-pub const UM_DIA: Duration = Duration::from_secs(24 * 3600);
+/// A pesquisa desiste depois disso.
+const LIMITE_PESQUISA: Duration = Duration::from_secs(60);
+/// O download (com a conversão) desiste depois disso.
+const LIMITE_DOWNLOAD: Duration = Duration::from_secs(5 * 60);
+/// A atualização do yt-dlp desiste depois disso.
+const LIMITE_ATUALIZACAO: Duration = Duration::from_secs(2 * 60);
 
 /// Só um preparo/atualização do yt-dlp por vez.
 static PREPARO: Mutex<()> = Mutex::new(());
@@ -48,10 +57,6 @@ fn pasta_ytdlp(dir: &Path) -> PathBuf {
 
 fn exe(dir: &Path) -> PathBuf {
     pasta_ytdlp(dir).join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" })
-}
-
-fn marca_verificado(dir: &Path) -> PathBuf {
-    pasta_ytdlp(dir).join("verificado")
 }
 
 fn travar_preparo() -> std::sync::MutexGuard<'static, ()> {
@@ -86,13 +91,18 @@ pub fn preparar(dir: &Path) -> Result<PathBuf, String> {
         fs::set_permissions(&parcial, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
     }
     fs::rename(&parcial, &exe).map_err(|e| e.to_string())?;
-    let _ = fs::write(marca_verificado(dir), "");
     Ok(exe)
 }
 
-/// Pede ao yt-dlp para se atualizar, se a última conferência foi há mais de
-/// `intervalo`. Sem internet, segue com a versão que tem.
-pub fn atualizar(dir: &Path, intervalo: Duration) {
+/// Hora da atualização semanal do yt-dlp: sábado, 01:50.
+pub fn hora_de_atualizar(agora: chrono::NaiveDateTime) -> bool {
+    use chrono::{Datelike, Timelike, Weekday};
+    agora.weekday() == Weekday::Sat && agora.hour() == 1 && agora.minute() == 50
+}
+
+/// Pede ao yt-dlp para se atualizar (baixa a versão nova, se tiver). Sem
+/// internet, segue com a versão que tem.
+pub fn atualizar(dir: &Path) {
     let exe = match preparar(dir) {
         Ok(e) => e,
         Err(e) => {
@@ -101,21 +111,44 @@ pub fn atualizar(dir: &Path, intervalo: Duration) {
         }
     };
     let _vez = travar_preparo();
-    let idade = fs::metadata(marca_verificado(dir)).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok());
-    if idade.is_some_and(|t| t < intervalo) {
-        return;
-    }
-    match sistema::comando(&exe).args(["-U", "--no-color"]).stdin(Stdio::null()).output() {
-        Ok(s) => {
+    match rodar_ate(sistema::comando(&exe).args(["-U", "--no-color"]), Instant::now() + LIMITE_ATUALIZACAO) {
+        Ok(Some(s)) => {
             let txt = String::from_utf8_lossy(&s.stdout);
             let ultima = txt.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim().to_string();
             registro::anotar(format!("youtube: atualização do yt-dlp: {ultima}"));
-            // Só marca como conferido se deu certo: sem internet, tenta de novo depois.
-            if s.status.success() {
-                let _ = fs::write(marca_verificado(dir), "");
-            }
         }
+        Ok(None) => registro::anotar("youtube: atualização do yt-dlp passou de 2 min, desistiu"),
         Err(e) => registro::anotar(format!("youtube: yt-dlp não abriu para atualizar: {e}")),
+    }
+}
+
+/// Lê tudo o que o programa escrever, num fio à parte (senão ele trava com o cano cheio).
+fn ler_tudo<R: Read + Send + 'static>(r: Option<R>) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut v = vec![];
+        if let Some(mut r) = r {
+            let _ = r.read_to_end(&mut v);
+        }
+        v
+    })
+}
+
+/// Roda o programa e espera até o `prazo`. Passou do prazo: fecha o programa
+/// e devolve `None`.
+fn rodar_ate(cmd: &mut Command, prazo: Instant) -> std::io::Result<Option<std::process::Output>> {
+    let mut filho = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let (out, err) = (ler_tudo(filho.stdout.take()), ler_tudo(filho.stderr.take()));
+    loop {
+        if let Some(status) = filho.try_wait()? {
+            let (stdout, stderr) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+            return Ok(Some(std::process::Output { status, stdout, stderr }));
+        }
+        if Instant::now() >= prazo {
+            let _ = filho.kill();
+            let _ = filho.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -139,15 +172,24 @@ pub fn pesquisar(dir: &Path, termo: &str) -> Result<Vec<Video>, String> {
         return Ok(vec![]);
     }
     let exe = preparar(dir)?;
+    let prazo = Instant::now() + LIMITE_PESQUISA;
     let mut videos = vec![];
     // Às vezes o YouTube responde sem o nome dos canais: pergunta de novo uma vez.
-    for _ in 0..2 {
-        let saida = sistema::comando(&exe)
-            .args(["--flat-playlist", "-J", "--no-warnings", "--no-update", "--no-color"])
-            .arg(format!("ytsearch{QUANTOS}:{termo}"))
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("O yt-dlp não abriu: {e}"))?;
+    for vez in 0..2 {
+        let saida = rodar_ate(
+            sistema::comando(&exe)
+                .args(["--flat-playlist", "-J", "--no-warnings", "--no-update", "--no-color"])
+                .arg(format!("ytsearch{QUANTOS}:{termo}")),
+            prazo,
+        )
+        .map_err(|e| format!("O yt-dlp não abriu: {e}"))?;
+        let Some(saida) = saida else {
+            // Na 2ª vez, fica com o que a 1ª trouxe.
+            if vez > 0 {
+                break;
+            }
+            return Err("O YouTube não respondeu em 1 minuto. Tente de novo.".into());
+        };
         if !saida.status.success() {
             return Err(erro_do_ytdlp(&String::from_utf8_lossy(&saida.stderr)));
         }
@@ -251,6 +293,32 @@ pub fn baixar(
     fs::create_dir_all(pasta).map_err(|e| format!("Não consegui usar a pasta do YouTube: {e}"))?;
     let tmp = dir.join("youtube-tmp");
     fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    let prazo = Instant::now() + LIMITE_DOWNLOAD;
+    let resultado = baixar_e_converter(&exe, pasta, &tmp, id, titulo, canal, prazo, &progresso);
+    if let Err(e) = &resultado {
+        registro::anotar(format!("youtube: {id} não baixou: {e}"));
+        // Não deixa pedaço de arquivo para trás.
+        if let Ok(lista) = fs::read_dir(&tmp) {
+            lista
+                .filter_map(Result::ok)
+                .filter(|a| a.file_name().to_string_lossy().starts_with(&format!("{id}.")))
+                .for_each(|a| drop(fs::remove_file(a.path())));
+        }
+    }
+    resultado
+}
+
+#[allow(clippy::too_many_arguments)]
+fn baixar_e_converter(
+    exe: &Path,
+    pasta: &Path,
+    tmp: &Path,
+    id: &str,
+    titulo: &str,
+    canal: &str,
+    prazo: Instant,
+    progresso: &impl Fn(u8),
+) -> Result<PathBuf, String> {
     let url = format!("https://www.youtube.com/watch?v={id}");
     registro::anotar(format!("youtube: baixando {id} ({titulo})"));
 
@@ -260,7 +328,10 @@ pub fn baixar(
     let mut erro = String::new();
     let mut cru = None;
     for extra in tentativas {
-        match baixar_audio(&exe, extra, &tmp, id, &url, &progresso) {
+        if Instant::now() >= prazo {
+            break;
+        }
+        match baixar_audio(exe, extra, tmp, id, &url, prazo, progresso) {
             Ok(p) => {
                 cru = Some(p);
                 break;
@@ -276,7 +347,7 @@ pub fn baixar(
     let destino = nome_livre(pasta, &nome);
 
     let pronto = tmp.join(format!("{id}.mp3"));
-    let convertido = converter(&cru, &pronto, &nome);
+    let convertido = converter(&cru, &pronto, &nome, prazo);
     let _ = fs::remove_file(&cru);
     if let Err(e) = convertido {
         let _ = fs::remove_file(&pronto);
@@ -309,6 +380,8 @@ fn mover(de: &Path, para: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+const PASSOU_5_MIN: &str = "Passou de 5 minutos e o download foi cancelado. Tente de novo.";
+
 /// Baixa só o áudio, como vem do YouTube. Devolve o arquivo cru e o canal.
 fn baixar_audio(
     exe: &Path,
@@ -316,6 +389,7 @@ fn baixar_audio(
     tmp: &Path,
     id: &str,
     url: &str,
+    prazo: Instant,
     progresso: &impl Fn(u8),
 ) -> Result<(PathBuf, Option<String>), String> {
     let mut filho = sistema::comando(exe)
@@ -349,7 +423,19 @@ fn baixar_audio(
     let mut canal = None;
     let mut erros = String::new();
     let mut ultimo = None;
-    for linha in rx {
+    loop {
+        let linha = match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(l) => l,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if Instant::now() >= prazo {
+                    let _ = filho.kill();
+                    let _ = filho.wait();
+                    return Err(PASSOU_5_MIN.into());
+                }
+                continue;
+            }
+        };
         if let Some(caminho) = linha.strip_prefix("ARQUIVO ") {
             arquivo = Some(PathBuf::from(caminho.trim()));
         } else if let Some(c) = linha.strip_prefix("CANAL ") {
@@ -378,7 +464,7 @@ fn baixar_audio(
 /// Áudio cru → MP3 estéreo 44,1 kHz com o volume igualado em `ALVO_LUFS` e o
 /// silêncio das pontas cortado. Duas passadas: a 1ª mede a música inteira
 /// (volume e silêncios); a 2ª corta, aplica o ganho exato e segura os picos.
-fn converter(cru: &Path, saida: &Path, nome: &str) -> Result<(), String> {
+fn converter(cru: &Path, saida: &Path, nome: &str, prazo: Instant) -> Result<(), String> {
     let medida = ffmpeg(
         Command::new("ffmpeg")
             .args(["-hide_banner", "-nostdin", "-i"])
@@ -386,6 +472,7 @@ fn converter(cru: &Path, saida: &Path, nome: &str) -> Result<(), String> {
             .args(["-vn", "-af"])
             .arg(format!("silencedetect=noise={SILENCIO_DB}dB:d=0.1,ebur128=framelog=quiet"))
             .args(["-f", "null", "-"]),
+        prazo,
     )?;
     let volume = loudness(&medida).ok_or("Não consegui medir o volume da música.")?;
     let ganho = (ALVO_LUFS - volume).clamp(-20.0, 20.0);
@@ -409,21 +496,23 @@ fn converter(cru: &Path, saida: &Path, nome: &str) -> Result<(), String> {
         cmd.args(["-metadata", &format!("artist={artista}")]);
     }
     cmd.args(["-f", "mp3"]).arg(saida);
-    ffmpeg(&mut cmd)?;
+    ffmpeg(&mut cmd, prazo)?;
     Ok(())
 }
 
-/// Roda o ffmpeg escondido; devolve o que ele escreveu no stderr.
-fn ffmpeg(cmd: &mut Command) -> Result<String, String> {
+/// Roda o ffmpeg escondido (até o `prazo`); devolve o que ele escreveu no stderr.
+fn ffmpeg(cmd: &mut Command, prazo: Instant) -> Result<String, String> {
     let mut c = sistema::comando(cmd.get_program());
     c.args(cmd.get_args());
-    let saida = c.stdin(Stdio::null()).output().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            "Falta o ffmpeg no computador.".to_string()
-        } else {
-            format!("O ffmpeg não abriu: {e}")
-        }
-    })?;
+    let saida = rodar_ate(&mut c, prazo)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                "Falta o ffmpeg no computador.".to_string()
+            } else {
+                format!("O ffmpeg não abriu: {e}")
+            }
+        })?
+        .ok_or_else(|| PASSOU_5_MIN.to_string())?;
     let stderr = String::from_utf8_lossy(&saida.stderr).into_owned();
     if saida.status.success() {
         Ok(stderr)
@@ -672,6 +761,50 @@ mod testes {
         // Silêncio do fim sem "silence_end".
         let s3 = "[silencedetect @ 0x1] silence_start: 170.5\n";
         assert_eq!(pontas(s3), (0.0, Some(170.5)));
+    }
+
+    /// Título esquisito nunca derruba o programa (ele fecha inteiro num "panic").
+    #[test]
+    fn titulos_estranhos_nao_quebram() {
+        let estranhos = [
+            "", " ", "-", " - ", " - - - ", "(", ")", "((((", "【", "【】", "[HD", "(Clipe Oficial",
+            "🔥🔥🔥", "♪♫", "| | |", " / ", "#", "##tag", "\"\"", "Ação - (", "Ação - )",
+            "Gusttavo Lima - (Ao Vivo)", "(Ao Vivo) - (HD)", "çãõ【ç】(ã)[õ]", "a/b\\c:d*e?f<g>h|i",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ];
+        for t in estranhos {
+            for canal in ["", "Canal Oficial", " - Topic", "VEVO"] {
+                let n = nome_do_arquivo(t, canal);
+                assert!(!n.contains('/') && !n.contains('\\'), "{t:?} → {n:?}");
+            }
+        }
+        assert_eq!(loudness("sem resumo"), None);
+        assert_eq!(pontas(""), (0.0, None));
+    }
+
+    #[test]
+    fn atualiza_so_sabado_01_50() {
+        let h = |t: &str| chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S").unwrap();
+        // 2026-11-28 é sábado.
+        assert!(hora_de_atualizar(h("2026-11-28 01:50:00")));
+        assert!(hora_de_atualizar(h("2026-11-28 01:50:59")));
+        assert!(!hora_de_atualizar(h("2026-11-28 01:49:59")));
+        assert!(!hora_de_atualizar(h("2026-11-28 01:51:00")));
+        assert!(!hora_de_atualizar(h("2026-11-28 13:50:00")));
+        assert!(!hora_de_atualizar(h("2026-11-27 01:50:00"))); // sexta
+        assert!(!hora_de_atualizar(h("2026-11-29 01:50:00"))); // domingo
+    }
+
+    /// O limite de tempo fecha o programa que passou do prazo.
+    #[cfg(unix)]
+    #[test]
+    fn limite_de_tempo_corta() {
+        let t = Instant::now();
+        let r = rodar_ate(Command::new("sleep").arg("10"), Instant::now() + Duration::from_millis(500)).unwrap();
+        assert!(r.is_none());
+        assert!(t.elapsed() < Duration::from_secs(3));
+        let ok = rodar_ate(Command::new("echo").arg("oi"), Instant::now() + Duration::from_secs(5)).unwrap().unwrap();
+        assert_eq!(String::from_utf8_lossy(&ok.stdout).trim(), "oi");
     }
 
     #[test]

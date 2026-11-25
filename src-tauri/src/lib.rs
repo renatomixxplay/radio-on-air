@@ -2140,10 +2140,14 @@ fn definir_pasta(app: AppHandle, estado: State<Compartilhado>, qual: String, cam
     }
     match qual.as_str() {
         "musicas" => carregar_biblioteca(app, compartilhado, true),
-        // Já deixa o yt-dlp pronto para a primeira pesquisa.
+        // Já deixa o yt-dlp baixado para a primeira pesquisa (atualizar, só no sábado).
         "youtube" => {
             let dir = travar(&compartilhado).dir.clone();
-            std::thread::spawn(move || youtube::atualizar(&dir, youtube::UM_DIA));
+            std::thread::spawn(move || {
+                if let Err(e) = youtube::preparar(&dir) {
+                    registro::anotar(format!("youtube: {e}"));
+                }
+            });
         }
         _ => {}
     }
@@ -2214,18 +2218,25 @@ async fn youtube_baixar(
     .map_err(|e| e.to_string())?
 }
 
-/// Uma vez por dia (com pasta do YouTube escolhida) o yt-dlp se atualiza.
+/// O yt-dlp se atualiza uma vez por semana, sábado às 01:50 (com a pasta do
+/// YouTube escolhida). Programa fechado nessa hora: fica para o sábado seguinte.
 fn iniciar_atualizacao_youtube(estado: Compartilhado) {
     std::thread::spawn(move || {
+        let mut feito: Option<chrono::NaiveDate> = None;
         loop {
-            let (dir, ligado) = {
-                let e = travar(&estado);
-                (e.dir.clone(), e.config.pasta_youtube.is_some())
-            };
-            if ligado {
-                youtube::atualizar(&dir, youtube::UM_DIA);
+            let agora = chrono::Local::now().naive_local();
+            if youtube::hora_de_atualizar(agora) && feito != Some(agora.date()) {
+                feito = Some(agora.date());
+                let (dir, ligado) = {
+                    let e = travar(&estado);
+                    (e.dir.clone(), e.config.pasta_youtube.is_some())
+                };
+                if ligado {
+                    registro::anotar("youtube: sábado 01:50, atualizando o yt-dlp");
+                    youtube::atualizar(&dir);
+                }
             }
-            std::thread::sleep(Duration::from_secs(3600));
+            std::thread::sleep(Duration::from_secs(20));
         }
     });
 }
